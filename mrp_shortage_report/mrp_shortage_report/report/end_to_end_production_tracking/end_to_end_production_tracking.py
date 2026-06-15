@@ -176,15 +176,15 @@ def get_data(filters):
                 "finished_qty": pp_row.finished_qty
             })
             
-            # Fetch Work Orders for this PP Item
+            # Fetch ALL Work Orders for this PP that belong to this Sales Order (including sub-assemblies)
             wo_query = """
                 SELECT 
-                    name as wo_name, status as wo_status,
+                    name as wo_name, status as wo_status, production_item, sales_order,
                     qty as wo_qty, produced_qty as wo_completed_qty
                 FROM `tabWork Order`
-                WHERE production_plan = %s AND production_item = %s AND docstatus = 1
+                WHERE production_plan = %s AND docstatus < 2
             """
-            wo_filter_vals = [pp_row.pp_name, so_row.item_code]
+            wo_filter_vals = [pp_row.pp_name]
             
             if filters.get("work_order"):
                 wo_query += " AND name = %s"
@@ -192,17 +192,28 @@ def get_data(filters):
                 
             work_orders = frappe.db.sql(wo_query, tuple(wo_filter_vals), as_dict=1)
             
-            if not work_orders:
+            # Filter Work Orders to only those relevant to this Sales Order row
+            valid_work_orders = []
+            for wo in work_orders:
+                if wo.sales_order == so_row.so_name or wo.production_item == so_row.item_code or not wo.sales_order:
+                    valid_work_orders.append(wo)
+            
+            if not valid_work_orders:
                 data.append(pp_base_row)
                 continue
                 
-            for wo_row in work_orders:
+            for wo_row in valid_work_orders:
                 wo_base_row = pp_base_row.copy()
                 
-                wo_qty_kgs, wo_qty_pcs = get_qty_in_kgs_and_pcs(so_row.item_code, wo_row.wo_qty)
-                wo_comp_kgs, wo_comp_pcs = get_qty_in_kgs_and_pcs(so_row.item_code, wo_row.wo_completed_qty)
+                wo_item_code = wo_row.production_item
+                wo_item_name = frappe.db.get_value("Item", wo_item_code, "item_name")
+                
+                wo_qty_kgs, wo_qty_pcs = get_qty_in_kgs_and_pcs(wo_item_code, wo_row.wo_qty)
+                wo_comp_kgs, wo_comp_pcs = get_qty_in_kgs_and_pcs(wo_item_code, wo_row.wo_completed_qty)
                 
                 wo_base_row.update({
+                    "item_code": wo_item_code,  # Override to show the actual sub-assembly being built
+                    "item_name": wo_item_name,
                     "work_order": wo_row.wo_name,
                     "wo_status": wo_row.wo_status,
                     "wo_qty_kgs": wo_qty_kgs,
@@ -230,8 +241,8 @@ def get_data(filters):
                 for jc_row in job_cards:
                     jc_base_row = wo_base_row.copy()
                     
-                    jc_qty_kgs, jc_qty_pcs = get_qty_in_kgs_and_pcs(so_row.item_code, jc_row.jc_qty)
-                    jc_comp_kgs, jc_comp_pcs = get_qty_in_kgs_and_pcs(so_row.item_code, jc_row.jc_completed_qty)
+                    jc_qty_kgs, jc_qty_pcs = get_qty_in_kgs_and_pcs(wo_item_code, jc_row.jc_qty)
+                    jc_comp_kgs, jc_comp_pcs = get_qty_in_kgs_and_pcs(wo_item_code, jc_row.jc_completed_qty)
                     
                     jc_base_row.update({
                         "job_card": jc_row.jc_name,
