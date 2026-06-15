@@ -82,14 +82,38 @@ def get_data(filters):
     # Caches for conversions
     conversion_cache = {}
     
-    def get_qty_in_kgs_and_pcs(item_code, qty):
+    def get_yield_pcs(fg_item_code, component_item_code, component_qty):
+        if fg_item_code == component_item_code:
+            return component_qty
+            
+        fg_bom = frappe.db.get_value("Item", fg_item_code, "default_bom")
+        if not fg_bom:
+            return component_qty
+            
+        bom_base_qty = frappe.db.get_value("BOM", fg_bom, "quantity") or 1.0
+        
+        exploded_qty = frappe.db.get_value("BOM Exploded Item", {"parent": fg_bom, "item_code": component_item_code}, "stock_qty")
+        if exploded_qty:
+            qty_per_fg = exploded_qty / bom_base_qty
+            if qty_per_fg > 0:
+                return component_qty / qty_per_fg
+                
+        # Fallback to direct BOM Items if not fully exploded
+        bom_item_qty = frappe.db.get_value("BOM Item", {"parent": fg_bom, "item_code": component_item_code}, "stock_qty")
+        if bom_item_qty:
+            qty_per_fg = bom_item_qty / bom_base_qty
+            if qty_per_fg > 0:
+                return component_qty / qty_per_fg
+                
+        return component_qty
+        
+    def get_qty_in_kgs_and_pcs(so_item_code, item_code, qty):
         if not qty: return 0.0, 0.0
         
         if item_code not in conversion_cache:
             item_doc = frappe.get_cached_doc("Item", item_code)
             stock_uom = item_doc.stock_uom and item_doc.stock_uom.strip().lower()
             
-            # Find conversion factors
             pcs_factor = 1.0
             kgs_factor = 1.0
             
@@ -118,12 +142,11 @@ def get_data(filters):
         
         if stock_uom in ['kg', 'kgs']:
             qty_kgs = qty
-            qty_pcs = qty * cache["pcs_factor"]
+            qty_pcs = get_yield_pcs(so_item_code, item_code, qty)
         elif stock_uom in ['pcs', 'nos', 'piece']:
             qty_pcs = qty
             qty_kgs = qty * cache["kgs_factor"]
         else:
-            # Fallback
             qty_pcs = qty
             qty_kgs = qty * cache["kgs_factor"]
             
@@ -208,8 +231,8 @@ def get_data(filters):
                 wo_item_code = wo_row.production_item
                 wo_item_name = frappe.db.get_value("Item", wo_item_code, "item_name")
                 
-                wo_qty_kgs, wo_qty_pcs = get_qty_in_kgs_and_pcs(wo_item_code, wo_row.wo_qty)
-                wo_comp_kgs, wo_comp_pcs = get_qty_in_kgs_and_pcs(wo_item_code, wo_row.wo_completed_qty)
+                wo_qty_kgs, wo_qty_pcs = get_qty_in_kgs_and_pcs(so_row.item_code, wo_item_code, wo_row.wo_qty)
+                wo_comp_kgs, wo_comp_pcs = get_qty_in_kgs_and_pcs(so_row.item_code, wo_item_code, wo_row.wo_completed_qty)
                 
                 wo_base_row.update({
                     "item_code": wo_item_code,  # Override to show the actual sub-assembly being built
@@ -241,8 +264,8 @@ def get_data(filters):
                 for jc_row in job_cards:
                     jc_base_row = wo_base_row.copy()
                     
-                    jc_qty_kgs, jc_qty_pcs = get_qty_in_kgs_and_pcs(wo_item_code, jc_row.jc_qty)
-                    jc_comp_kgs, jc_comp_pcs = get_qty_in_kgs_and_pcs(wo_item_code, jc_row.jc_completed_qty)
+                    jc_qty_kgs, jc_qty_pcs = get_qty_in_kgs_and_pcs(so_row.item_code, wo_item_code, jc_row.jc_qty)
+                    jc_comp_kgs, jc_comp_pcs = get_qty_in_kgs_and_pcs(so_row.item_code, wo_item_code, jc_row.jc_completed_qty)
                     
                     jc_base_row.update({
                         "job_card": jc_row.jc_name,
