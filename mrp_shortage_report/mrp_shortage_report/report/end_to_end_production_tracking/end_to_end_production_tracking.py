@@ -79,9 +79,33 @@ def get_data(filters):
     
     so_items = frappe.db.sql(so_query, so_values, as_dict=1)
     
-    # Caches for conversions
+    bom_yield_cache = {}
     conversion_cache = {}
     
+    def get_qty_per_fg_recursive(bom_no, target_item, current_qty=1.0):
+        if not bom_no: return 0.0
+        
+        bom_items = frappe.db.sql("""
+            SELECT item_code, bom_no, stock_qty
+            FROM `tabBOM Item`
+            WHERE parent = %s
+        """, (bom_no,), as_dict=1)
+        
+        bom_base_qty = frappe.db.get_value("BOM", bom_no, "quantity") or 1.0
+        
+        total_found = 0.0
+        for item in bom_items:
+            qty_per_parent = item.stock_qty / bom_base_qty
+            required_qty = current_qty * qty_per_parent
+            
+            if item.item_code == target_item:
+                total_found += required_qty
+                
+            if item.bom_no:
+                total_found += get_qty_per_fg_recursive(item.bom_no, target_item, required_qty)
+                
+        return total_found
+
     def get_yield_pcs(fg_item_code, component_item_code, component_qty):
         if fg_item_code == component_item_code:
             return component_qty
@@ -90,20 +114,14 @@ def get_data(filters):
         if not fg_bom:
             return component_qty
             
-        bom_base_qty = frappe.db.get_value("BOM", fg_bom, "quantity") or 1.0
+        cache_key = f"{fg_bom}_{component_item_code}"
+        if cache_key not in bom_yield_cache:
+            bom_yield_cache[cache_key] = get_qty_per_fg_recursive(fg_bom, component_item_code, 1.0)
+            
+        qty_per_fg = bom_yield_cache[cache_key]
         
-        exploded_qty = frappe.db.get_value("BOM Explosion Item", {"parent": fg_bom, "item_code": component_item_code}, "stock_qty")
-        if exploded_qty:
-            qty_per_fg = exploded_qty / bom_base_qty
-            if qty_per_fg > 0:
-                return component_qty / qty_per_fg
-                
-        # Fallback to direct BOM Items if not fully exploded
-        bom_item_qty = frappe.db.get_value("BOM Item", {"parent": fg_bom, "item_code": component_item_code}, "stock_qty")
-        if bom_item_qty:
-            qty_per_fg = bom_item_qty / bom_base_qty
-            if qty_per_fg > 0:
-                return component_qty / qty_per_fg
+        if qty_per_fg and qty_per_fg > 0:
+            return component_qty / qty_per_fg
                 
         return component_qty
         
