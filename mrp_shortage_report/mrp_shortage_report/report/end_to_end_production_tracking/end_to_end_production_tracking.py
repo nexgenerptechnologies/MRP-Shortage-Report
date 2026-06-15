@@ -182,9 +182,9 @@ def get_data(filters):
                     name as wo_name, status as wo_status,
                     qty as wo_qty, produced_qty as wo_completed_qty
                 FROM `tabWork Order`
-                WHERE production_plan = %s AND production_plan_item = %s AND docstatus = 1
+                WHERE production_plan = %s AND production_item = %s AND docstatus = 1
             """
-            wo_filter_vals = [pp_row.pp_name, pp_row.ppi_name]
+            wo_filter_vals = [pp_row.pp_name, so_row.item_code]
             
             if filters.get("work_order"):
                 wo_query += " AND name = %s"
@@ -217,7 +217,7 @@ def get_data(filters):
                 job_cards = frappe.db.sql("""
                     SELECT 
                         name as jc_name, status as jc_status, operation,
-                        total_qty as jc_qty, total_completed_qty as jc_completed_qty
+                        for_quantity as jc_qty, total_completed_qty as jc_completed_qty
                     FROM `tabJob Card`
                     WHERE work_order = %s AND docstatus = 1
                     ORDER BY creation ASC
