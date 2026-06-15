@@ -92,7 +92,7 @@ def get_data(filters):
             
         bom_base_qty = frappe.db.get_value("BOM", fg_bom, "quantity") or 1.0
         
-        exploded_qty = frappe.db.get_value("BOM Exploded Item", {"parent": fg_bom, "item_code": component_item_code}, "stock_qty")
+        exploded_qty = frappe.db.get_value("BOM Explosion Item", {"parent": fg_bom, "item_code": component_item_code}, "stock_qty")
         if exploded_qty:
             qty_per_fg = exploded_qty / bom_base_qty
             if qty_per_fg > 0:
