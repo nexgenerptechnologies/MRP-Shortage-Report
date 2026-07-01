@@ -2,6 +2,10 @@
 // For license information, please see license.txt
 
 frappe.query_reports["Sales order Vs Production Progress Report"] = {
+	"tree": true,
+	"name_field": "id",
+	"parent_field": "parent_id",
+	"initial_depth": 1,
 	"filters": [
 		{
 			"fieldname": "company",
