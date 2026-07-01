@@ -134,7 +134,6 @@ def get_data(filters):
         return qty 
         
     for so_row in so_items:
-        # Fetch Sales Invoice data for root SO
         inv_items = frappe.db.sql("""
             SELECT sum(sii.qty)
             FROM `tabSales Invoice Item` sii
@@ -144,7 +143,6 @@ def get_data(filters):
         dispatch_qty = inv_items[0][0] if (inv_items and inv_items[0][0]) else 0.0
         dispatch_qty_pcs = get_qty_pcs(so_row.item_code, so_row.item_code, dispatch_qty)
         
-        # Pre-fetch PP for this SO Item
         pp_items = frappe.db.sql("""
             SELECT pp.name as pp_name, pp.posting_date as pp_date,
                 ppi.planned_qty, ppi.produced_qty as finished_qty
@@ -155,7 +153,6 @@ def get_data(filters):
         
         pp_names = [p.pp_name for p in pp_items]
         
-        # Pre-fetch ALL WOs linked to these PPs OR directly to the SO
         valid_wos = []
         if pp_names:
             wo_query = f"""
@@ -171,7 +168,6 @@ def get_data(filters):
             WHERE sales_order = %s AND docstatus < 2
         """, (so_row.so_name,), as_dict=1)
         
-        # Merge WOs ensuring no duplicates
         wo_map = {wo.wo_name: wo for wo in valid_wos}
         for dwo in direct_wos:
             wo_map[dwo.wo_name] = dwo
@@ -179,45 +175,73 @@ def get_data(filters):
         
         fg_bom = frappe.db.get_value("Item", so_row.item_code, "default_bom")
         
-        # Recursive function to build the tree nodes
-        def process_bom_node(current_item, bom_no, parent_id, indent, required_qty, is_root=False):
+        def process_branch(branch_item, branch_bom, parent_id, indent, branch_req_qty, is_root=False):
             row_id = frappe.generate_hash(length=8)
             
-            item_wos = [wo for wo in valid_wos if wo.production_item == current_item]
-            total_wo_qty = sum([get_qty_pcs(so_row.item_code, current_item, wo.wo_qty) for wo in item_wos])
+            # State to accumulate WIP operations into this branch row
+            state = {
+                "max_wo_qty": 0.0,
+                "cut_comp": 0.0,
+                "vibro_comp": 0.0,
+                "plate_comp": 0.0,
+                "pack_comp": 0.0,
+                "req_ops": set(),
+                "has_child": 0
+            }
             
-            cut_comp = 0.0
-            vibro_comp = 0.0
-            plate_comp = 0.0
-            pack_comp = 0.0
-            
-            wo_names = [wo.wo_name for wo in item_wos]
-            if wo_names:
-                job_cards = frappe.db.sql(f"""
-                    SELECT operation, total_completed_qty as comp_qty
-                    FROM `tabJob Card`
-                    WHERE work_order IN ({', '.join(['%s']*len(wo_names))}) AND docstatus = 1
-                """, tuple(wo_names), as_dict=1)
-                
-                for jc in job_cards:
-                    op = jc.operation or ""
-                    comp = get_qty_pcs(so_row.item_code, current_item, jc.comp_qty)
-                    if "Cutting & Bending" in op: cut_comp += comp
-                    elif "Vibro Cleaning" in op: vibro_comp += comp
-                    elif "Plating" in op: plate_comp += comp
-                    elif "Packaging" in op: pack_comp += comp
+            def traverse_wip(current_item, bom_no, req_qty):
+                # 1. Accumulate Work Order Qtys (take MAX to avoid duplicating qty in a chain)
+                item_wos = [wo for wo in valid_wos if wo.production_item == current_item]
+                for wo in item_wos:
+                    wo_qty = get_qty_pcs(so_row.item_code, current_item, wo.wo_qty)
+                    if wo_qty > state["max_wo_qty"]:
+                        state["max_wo_qty"] = wo_qty
+                        
+                # 2. Accumulate Job Cards
+                wo_names = [wo.wo_name for wo in item_wos]
+                if wo_names:
+                    job_cards = frappe.db.sql(f"""
+                        SELECT operation, total_completed_qty as comp_qty
+                        FROM `tabJob Card`
+                        WHERE work_order IN ({', '.join(['%s']*len(wo_names))}) AND docstatus = 1
+                    """, tuple(wo_names), as_dict=1)
+                    
+                    for jc in job_cards:
+                        op = jc.operation or ""
+                        comp = get_qty_pcs(so_row.item_code, current_item, jc.comp_qty)
+                        if "Cutting & Bending" in op: state["cut_comp"] += comp
+                        elif "Vibro Cleaning" in op: state["vibro_comp"] += comp
+                        elif "Plating" in op: state["plate_comp"] += comp
+                        elif "Packaging" in op: state["pack_comp"] += comp
+                        
+                # 3. Accumulate Operations & Recurse Children
+                if bom_no:
+                    bom_ops = frappe.db.sql("SELECT operation FROM `tabBOM Operation` WHERE parent = %s", bom_no, as_dict=1)
+                    state["req_ops"].update([op.operation for op in bom_ops if op.operation])
+                    
+                    bom_items = frappe.db.sql("SELECT item_code, bom_no, stock_qty FROM `tabBOM Item` WHERE parent = %s", bom_no, as_dict=1)
+                    bom_base_qty = frappe.db.get_value("BOM", bom_no, "quantity") or 1.0
+                    
+                    for child in bom_items:
+                        if child.bom_no: # Process sub-assemblies
+                            child_req_qty = req_qty * (child.stock_qty / bom_base_qty)
+                            if child.item_code.startswith("FGD"):
+                                # If it's an FGD, Branch it into a new row!
+                                state["has_child"] = 1
+                                process_branch(child.item_code, child.bom_no, row_id, indent + 1, child_req_qty)
+                            else:
+                                # If it's a WIP, traverse and Roll it up into THIS state!
+                                traverse_wip(child.item_code, child.bom_no, child_req_qty)
 
-            # Determine operations explicitly present in THIS BOM
-            req_ops = set()
-            if bom_no:
-                bom_ops = frappe.db.sql("SELECT operation FROM `tabBOM Operation` WHERE parent = %s", bom_no, as_dict=1)
-                req_ops = set([op.operation for op in bom_ops if op.operation])
-                
-            has_cut = any("Cutting & Bending" in o for o in req_ops)
-            has_vibro = any("Vibro Cleaning" in o for o in req_ops)
-            has_plate = any("Plating" in o for o in req_ops)
-            has_pack = any("Packaging" in o for o in req_ops)
+            # Start traversing this branch
+            traverse_wip(branch_item, branch_bom, branch_req_qty)
             
+            has_cut = any("Cutting & Bending" in o for o in state["req_ops"])
+            has_vibro = any("Vibro Cleaning" in o for o in state["req_ops"])
+            has_plate = any("Plating" in o for o in state["req_ops"])
+            has_pack = any("Packaging" in o for o in state["req_ops"])
+            
+            total_wo_qty = state["max_wo_qty"]
             prev_comp = total_wo_qty
             
             row = {
@@ -225,11 +249,11 @@ def get_data(filters):
                 "parent_id": parent_id,
                 "indent": indent,
                 
-                "item_code": current_item,
-                "item_name": frappe.db.get_value("Item", current_item, "item_name") or current_item,
-                "order_qty": required_qty,
+                "item_code": branch_item,
+                "item_name": frappe.db.get_value("Item", branch_item, "item_name") or branch_item,
+                "order_qty": branch_req_qty,
                 "wo_qty": total_wo_qty,
-                "has_child": 0
+                "has_child": state["has_child"]
             }
             
             if is_root:
@@ -243,50 +267,51 @@ def get_data(filters):
                     "pp_qty": sum([get_qty_pcs(so_row.item_code, so_row.item_code, p.planned_qty) for p in pp_items]),
                     "pp_bal": sum([get_qty_pcs(so_row.item_code, so_row.item_code, p.planned_qty - p.finished_qty) for p in pp_items]),
                     "dispatch_qty": dispatch_qty_pcs,
-                    "dispatch_bal": max(0, required_qty - dispatch_qty_pcs)
+                    "dispatch_bal": max(0, branch_req_qty - dispatch_qty_pcs)
                 })
             
             if has_cut:
-                row["cut_comp"] = cut_comp
-                row["cut_bal"] = max(0, total_wo_qty - cut_comp)
-                prev_comp = cut_comp
+                row["cut_comp"] = state["cut_comp"]
+                row["cut_bal"] = max(0, total_wo_qty - state["cut_comp"])
+                prev_comp = state["cut_comp"]
+            else:
+                row["cut_comp"] = 0
+                row["cut_bal"] = 0
                 
             if has_vibro:
-                row["vibro_avail"] = max(0, prev_comp - vibro_comp)
-                row["vibro_comp"] = vibro_comp
-                row["vibro_bal"] = max(0, total_wo_qty - vibro_comp)
-                prev_comp = vibro_comp
+                row["vibro_avail"] = max(0, prev_comp - state["vibro_comp"])
+                row["vibro_comp"] = state["vibro_comp"]
+                row["vibro_bal"] = max(0, total_wo_qty - state["vibro_comp"])
+                prev_comp = state["vibro_comp"]
+            else:
+                row["vibro_avail"] = 0
+                row["vibro_comp"] = 0
+                row["vibro_bal"] = 0
                 
             if has_plate:
-                row["plate_avail"] = max(0, prev_comp - plate_comp)
-                row["plate_comp"] = plate_comp
-                row["plate_bal"] = max(0, total_wo_qty - plate_comp)
-                prev_comp = plate_comp
+                row["plate_avail"] = max(0, prev_comp - state["plate_comp"])
+                row["plate_comp"] = state["plate_comp"]
+                row["plate_bal"] = max(0, total_wo_qty - state["plate_comp"])
+                prev_comp = state["plate_comp"]
+            else:
+                row["plate_avail"] = 0
+                row["plate_comp"] = 0
+                row["plate_bal"] = 0
                 
             if has_pack:
-                row["pack_comp"] = pack_comp
-                row["pack_bal"] = max(0, total_wo_qty - pack_comp)
-                prev_comp = pack_comp
+                row["pack_comp"] = state["pack_comp"]
+                row["pack_bal"] = max(0, total_wo_qty - state["pack_comp"])
+                prev_comp = state["pack_comp"]
+            else:
+                row["pack_comp"] = 0
+                row["pack_bal"] = 0
                 
             if is_root:
-                fg_avail = pack_comp - dispatch_qty_pcs
+                fg_avail = state["pack_comp"] - dispatch_qty_pcs
                 row["fg_avail"] = fg_avail if fg_avail > 0 else 0
                 
             data.append(row)
-            
-            # Recurse for child items with BOMs
-            if bom_no:
-                bom_items = frappe.db.sql("SELECT item_code, bom_no, stock_qty FROM `tabBOM Item` WHERE parent = %s", bom_no, as_dict=1)
-                bom_base_qty = frappe.db.get_value("BOM", bom_no, "quantity") or 1.0
-                has_children = False
-                for child in bom_items:
-                    if child.bom_no: # Only process sub-assemblies (they have operations)
-                        has_children = True
-                        child_qty_per_parent = child.stock_qty / bom_base_qty
-                        child_required_qty = required_qty * child_qty_per_parent
-                        process_bom_node(child.item_code, child.bom_no, row_id, indent + 1, child_required_qty)
-                row["has_child"] = 1 if has_children else 0
                         
-        process_bom_node(so_row.item_code, fg_bom, "", 0, get_qty_pcs(so_row.item_code, so_row.item_code, so_row.so_qty), is_root=True)
+        process_branch(so_row.item_code, fg_bom, "", 0, get_qty_pcs(so_row.item_code, so_row.item_code, so_row.so_qty), is_root=True)
 
     return data
