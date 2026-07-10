@@ -13,6 +13,7 @@ def get_columns():
         {"fieldname": "work_order", "label": _("Work Order"), "fieldtype": "Link", "options": "Work Order", "width": 140},
         {"fieldname": "item_code", "label": _("Item Code"), "fieldtype": "Link", "options": "Item", "width": 140},
         {"fieldname": "item_name", "label": _("Item Name"), "fieldtype": "Data", "width": 180},
+        {"fieldname": "status", "label": _("Status"), "fieldtype": "Data", "width": 100},
         {"fieldname": "workstation", "label": _("Workstation"), "fieldtype": "Link", "options": "Workstation", "width": 140},
         {"fieldname": "operation", "label": _("Operation"), "fieldtype": "Link", "options": "Operation", "width": 120},
         {"fieldname": "operation_time", "label": _("Operation Time (Mints)"), "fieldtype": "Float", "width": 160},
@@ -31,7 +32,7 @@ def get_data(filters):
     job_cards = frappe.db.sql(f"""
         SELECT
             name as job_card, posting_date, work_order, production_item as item_code,
-            item_name, workstation, operation, total_time_in_mins as operation_time,
+            item_name, status, workstation, operation, total_time_in_mins as operation_time,
             total_completed_qty as production_qty_pcs, bom_no
         FROM `tabJob Card`
         WHERE docstatus = 1 {{conditions}}
@@ -167,6 +168,7 @@ def get_data(filters):
             "work_order": jc.work_order,
             "item_code": jc.item_code,
             "item_name": jc.item_name,
+            "status": jc.status,
             "workstation": jc.workstation,
             "operation": jc.operation,
             "operation_time": jc.operation_time,
@@ -191,4 +193,6 @@ def get_conditions(filters):
         conditions += " AND posting_date <= %(to_date)s"
     if filters.get("workstation"):
         conditions += " AND workstation = %(workstation)s"
+    if filters.get("status"):
+        conditions += " AND status = %(status)s"
     return conditions

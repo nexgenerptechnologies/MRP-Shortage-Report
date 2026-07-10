@@ -33,6 +33,13 @@ frappe.query_reports["Daily Production Report"] = {
             "label": __("Operator"),
             "fieldtype": "Link",
             "options": "Employee"
+        },
+        {
+            "fieldname": "status",
+            "label": __("Status"),
+            "fieldtype": "Select",
+            "options": "\nOpen\nWork In Progress\nCompleted\nCancelled\nOn Hold\nMaterial Transferred",
+            "default": ""
         }
     ],
     "formatter": function(value, row, column, data, default_formatter) {
