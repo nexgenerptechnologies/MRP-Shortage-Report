@@ -1,0 +1,149 @@
+import frappe
+from frappe import _
+
+def execute(filters=None):
+    columns = get_columns()
+    data = get_data(filters)
+    return columns, data
+
+def get_columns():
+    return [
+        {"fieldname": "posting_date", "label": _("Posting Date"), "fieldtype": "Date", "width": 110},
+        {"fieldname": "job_card", "label": _("Job Card"), "fieldtype": "Link", "options": "Job Card", "width": 140},
+        {"fieldname": "work_order", "label": _("Work Order"), "fieldtype": "Link", "options": "Work Order", "width": 140},
+        {"fieldname": "item_code", "label": _("Item Code"), "fieldtype": "Link", "options": "Item", "width": 140},
+        {"fieldname": "item_name", "label": _("Item Name"), "fieldtype": "Data", "width": 180},
+        {"fieldname": "workstation", "label": _("Workstation"), "fieldtype": "Link", "options": "Workstation", "width": 140},
+        {"fieldname": "operation", "label": _("Operation"), "fieldtype": "Link", "options": "Operation", "width": 120},
+        {"fieldname": "operation_time", "label": _("Operation Time (Mints)"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "operator_name", "label": _("Operator Name"), "fieldtype": "Data", "width": 140},
+        {"fieldname": "production_qty_pcs", "label": _("Production Qty (Pcs)"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "production_qty_kgs", "label": _("Production Qty (Kgs)"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "scrap_as_per_bom", "label": _("Scrap as per BOM"), "fieldtype": "Float", "width": 140},
+        {"fieldname": "actual_scrap", "label": _("Actual Scrap"), "fieldtype": "Float", "width": 120},
+        {"fieldname": "difference", "label": _("Difference"), "fieldtype": "Float", "width": 100}
+    ]
+
+def get_data(filters):
+    conditions = get_conditions(filters)
+    
+    # Fetch Job Cards
+    job_cards = frappe.db.sql(f"""
+        SELECT
+            name as job_card, posting_date, work_order, production_item as item_code,
+            item_name, workstation, operation, total_time_in_mins as operation_time,
+            total_completed_qty as production_qty_pcs, bom_no
+        FROM `tabJob Card`
+        WHERE docstatus = 1 {{conditions}}
+        ORDER BY posting_date DESC
+    """.format(conditions=conditions), filters, as_dict=1)
+    
+    data = []
+    if not job_cards:
+        return data
+    
+    # Pre-fetch Item Weights
+    item_weights = {}
+    items = set([jc.item_code for jc in job_cards if jc.item_code])
+    if items:
+        weights = frappe.db.sql("SELECT name, weight_per_unit FROM `tabItem` WHERE name IN %s", (tuple(items),), as_dict=1)
+        for w in weights:
+            item_weights[w.name] = w.weight_per_unit or 0.0
+
+    # Pre-fetch BOM Scrap logic
+    bom_scrap_ratios = {}
+    boms = set([jc.bom_no for jc in job_cards if jc.bom_no])
+    if boms:
+        bom_details = frappe.db.sql("""
+            SELECT name, quantity FROM `tabBOM` WHERE name IN %s
+        """, (tuple(boms),), as_dict=1)
+        
+        bom_scrap_details = frappe.db.sql("""
+            SELECT parent, sum(stock_qty) as total_scrap 
+            FROM `tabBOM Scrap Item` 
+            WHERE parent IN %s 
+            GROUP BY parent
+        """, (tuple(boms),), as_dict=1)
+        
+        scrap_map = {s.parent: s.total_scrap for s in bom_scrap_details}
+        
+        for b in bom_details:
+            total_scrap = scrap_map.get(b.name, 0.0)
+            if b.quantity:
+                bom_scrap_ratios[b.name] = total_scrap / b.quantity
+            else:
+                bom_scrap_ratios[b.name] = 0.0
+                
+    # Filter by Employee (Operator) if specified in filters
+    filter_employee = filters.get("employee")
+
+    for jc in job_cards:
+        # Get Operator Name from Time Logs
+        operator_name = ""
+        employee_match = True
+        
+        time_logs = frappe.db.sql("""
+            SELECT GROUP_CONCAT(DISTINCT employee_name SEPARATOR ', ') as emp_names,
+                   GROUP_CONCAT(DISTINCT employee SEPARATOR ', ') as emp_ids
+            FROM `tabJob Card Time Log` 
+            WHERE parent = %s
+        """, (jc.job_card,), as_dict=1)
+        
+        if time_logs and time_logs[0]:
+            operator_name = time_logs[0].get("emp_names") or ""
+            emp_ids = time_logs[0].get("emp_ids") or ""
+            
+            # Apply employee filter natively here if needed
+            if filter_employee and filter_employee not in emp_ids:
+                employee_match = False
+                
+        if not employee_match:
+            continue
+            
+        # Production Qty in Kgs
+        weight = item_weights.get(jc.item_code, 0.0)
+        production_qty_kgs = (jc.production_qty_pcs or 0.0) * weight
+        
+        # Scrap as per BOM
+        ratio = bom_scrap_ratios.get(jc.bom_no, 0.0)
+        scrap_as_per_bom = (jc.production_qty_pcs or 0.0) * ratio
+        
+        # Actual Scrap from Job Card Scrap Items
+        actual_scrap = 0.0
+        scrap_items = frappe.db.sql("SELECT sum(stock_qty) FROM `tabJob Card Scrap Item` WHERE parent = %s", (jc.job_card,))
+        if scrap_items and scrap_items[0][0]:
+            actual_scrap = scrap_items[0][0]
+            
+        difference = actual_scrap - scrap_as_per_bom
+        
+        row = {
+            "posting_date": jc.posting_date,
+            "job_card": jc.job_card,
+            "work_order": jc.work_order,
+            "item_code": jc.item_code,
+            "item_name": jc.item_name,
+            "workstation": jc.workstation,
+            "operation": jc.operation,
+            "operation_time": jc.operation_time,
+            "operator_name": operator_name,
+            "production_qty_pcs": jc.production_qty_pcs,
+            "production_qty_kgs": production_qty_kgs,
+            "scrap_as_per_bom": scrap_as_per_bom,
+            "actual_scrap": actual_scrap,
+            "difference": difference
+        }
+        data.append(row)
+        
+    return data
+
+def get_conditions(filters):
+    conditions = ""
+    if filters.get("company"):
+        conditions += " AND company = %(company)s"
+    if filters.get("from_date"):
+        conditions += " AND posting_date >= %(from_date)s"
+    if filters.get("to_date"):
+        conditions += " AND posting_date <= %(to_date)s"
+    if filters.get("workstation"):
+        conditions += " AND workstation = %(workstation)s"
+    return conditions
