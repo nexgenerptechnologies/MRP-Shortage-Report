@@ -83,10 +83,11 @@ def get_data(filters):
         employee_match = True
         
         time_logs = frappe.db.sql("""
-            SELECT GROUP_CONCAT(DISTINCT employee_name SEPARATOR ', ') as emp_names,
-                   GROUP_CONCAT(DISTINCT employee SEPARATOR ', ') as emp_ids
-            FROM `tabJob Card Time Log` 
-            WHERE parent = %s
+            SELECT GROUP_CONCAT(DISTINCT e.employee_name SEPARATOR ', ') as emp_names,
+                   GROUP_CONCAT(DISTINCT tl.employee SEPARATOR ', ') as emp_ids
+            FROM `tabJob Card Time Log` tl
+            LEFT JOIN `tabEmployee` e ON e.name = tl.employee
+            WHERE tl.parent = %s
         """, (jc.job_card,), as_dict=1)
         
         if time_logs and time_logs[0]:
