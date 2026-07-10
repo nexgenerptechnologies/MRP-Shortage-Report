@@ -429,4 +429,29 @@ def get_data(filters):
                         
         process_branch(root_item_code, fg_bom, "", 0, root_req_qty, is_root=True)
 
+    if data:
+        total_row = {
+            "id": frappe.generate_hash(length=8),
+            "parent_id": "",
+            "indent": 0,
+            "item_name": "<b>Totals</b>",
+            "order_qty": 0.0,
+            "stock_qty": 0.0,
+            "pp_qty": 0.0,
+            "pp_bal": 0.0,
+            "wo_qty": 0.0,
+            "subcontract_kgs": 0.0,
+            "cut_comp": 0.0, "cut_bal": 0.0,
+            "vibro_avail": 0.0, "vibro_comp": 0.0, "vibro_bal": 0.0,
+            "plate_avail": 0.0, "plate_comp": 0.0, "plate_bal": 0.0,
+            "pack_comp": 0.0, "pack_bal": 0.0,
+            "fg_avail": 0.0, "dispatch_qty": 0.0, "dispatch_bal": 0.0
+        }
+        for d in data:
+            if not d.get("parent_id"):  # Only sum root nodes!
+                for key in total_row:
+                    if key not in ["id", "parent_id", "indent", "item_name"]:
+                        total_row[key] += (d.get(key) or 0.0)
+        data.append(total_row)
+
     return data

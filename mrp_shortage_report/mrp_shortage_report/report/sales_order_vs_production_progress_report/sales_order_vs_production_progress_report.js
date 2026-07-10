@@ -6,7 +6,6 @@ frappe.query_reports["Sales order Vs Production Progress Report"] = {
 	"name_field": "id",
 	"parent_field": "parent_id",
 	"initial_depth": 1,
-	"add_total_row": 1,
 	"filters": [
 		{
 			"fieldname": "company",
