@@ -57,5 +57,13 @@ frappe.query_reports["Sales order Vs Production Progress Report"] = {
 			"fieldtype": "Select",
 			"options": "\nDraft\nSubmitted\nNot Started\nIn Process\nCompleted\nStopped\nClosed\nMaterial Requested",
 		}
-	]
+	],
+	"formatter": function(value, row, column, data, default_formatter) {
+		if (column.fieldname === "production_plan" && value) {
+			let pps = value.split(", ");
+			let links = pps.map(pp => `<a href="/app/production-plan/${pp}" data-doctype="Production Plan" data-name="${pp}">${pp}</a>`);
+			return links.join(", ");
+		}
+		return default_formatter(value, row, column, data);
+	}
 };

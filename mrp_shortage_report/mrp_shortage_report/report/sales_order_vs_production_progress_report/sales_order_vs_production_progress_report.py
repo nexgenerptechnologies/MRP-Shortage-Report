@@ -352,6 +352,8 @@ def get_data(filters):
             bin_qty = frappe.db.sql("SELECT sum(actual_qty) FROM `tabBin` WHERE item_code = %s", (branch_item,))
             actual_stock_qty = bin_qty[0][0] if bin_qty and bin_qty[0][0] else 0.0
             
+            final_order_qty = branch_req_qty if root_type == "SO" else 0.0
+            
             row = {
                 "id": row_id,
                 "parent_id": parent_id,
@@ -359,7 +361,7 @@ def get_data(filters):
                 
                 "item_code": branch_item,
                 "item_name": frappe.db.get_value("Item", branch_item, "item_name") or branch_item,
-                "order_qty": branch_req_qty,
+                "order_qty": final_order_qty,
                 "stock_qty": actual_stock_qty,
                 "wo_qty": total_wo_qty,
                 "subcontract_kgs": state["subcontract_kgs"],
