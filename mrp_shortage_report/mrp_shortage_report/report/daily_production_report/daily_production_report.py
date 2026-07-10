@@ -35,7 +35,7 @@ def get_data(filters):
             item_name, status, workstation, operation, total_time_in_mins as operation_time,
             total_completed_qty as production_qty_pcs, bom_no
         FROM `tabJob Card`
-        WHERE docstatus = 1 {{conditions}}
+        WHERE docstatus < 2 {{conditions}}
         ORDER BY posting_date DESC
     """.format(conditions=conditions), filters, as_dict=1)
     
