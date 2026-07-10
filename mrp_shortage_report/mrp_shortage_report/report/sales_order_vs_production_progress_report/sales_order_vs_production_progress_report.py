@@ -27,6 +27,7 @@ def get_columns():
         
         {"fieldname": "production_plan", "label": _("Production Plan Number"), "fieldtype": "Data", "width": 160},
         {"fieldname": "pp_date", "label": _("Production Plan Date"), "fieldtype": "Data", "width": 110},
+        {"fieldname": "pp_status", "label": _("Production Plan Status"), "fieldtype": "Data", "width": 140},
         {"fieldname": "pp_qty", "label": _("Total Production Plan Quantity in Pcs"), "fieldtype": "Float", "width": 160},
         {"fieldname": "pp_bal", "label": _("Total Balance for production plan in Pcs"), "fieldtype": "Float", "width": 160},
         
@@ -126,6 +127,16 @@ def get_data(filters):
     if filters.get("to_date"):
         so_conditions.append("so.transaction_date <= %(to_date)s")
         so_values["to_date"] = filters.get("to_date")
+    if filters.get("pp_status"):
+        so_conditions.append("""
+            EXISTS (
+                SELECT 1 FROM `tabProduction Plan Item` ppi2 
+                INNER JOIN `tabProduction Plan` pp2 ON ppi2.parent = pp2.name
+                WHERE ppi2.sales_order = so.name AND ppi2.sales_order_item = soi.name 
+                AND pp2.status = %(pp_status)s AND pp2.docstatus = 1
+            )
+        """)
+        so_values["pp_status"] = filters.get("pp_status")
         
     so_query = f"""
         SELECT
@@ -158,9 +169,12 @@ def get_data(filters):
     if filters.get("to_date"):
         pp_conditions.append("pp.posting_date <= %(to_date)s")
         pp_values["to_date"] = filters.get("to_date")
+    if filters.get("pp_status"):
+        pp_conditions.append("pp.status = %(pp_status)s")
+        pp_values["pp_status"] = filters.get("pp_status")
         
     pp_query = f"""
-        SELECT ppi.name as ppi_name, ppi.parent as pp_name, pp.posting_date as pp_date,
+        SELECT ppi.name as ppi_name, ppi.parent as pp_name, pp.posting_date as pp_date, pp.status as pp_status,
             ppi.item_code, ppi.planned_qty
         FROM `tabProduction Plan Item` ppi
         INNER JOIN `tabProduction Plan` pp ON ppi.parent = pp.name
@@ -238,7 +252,7 @@ def get_data(filters):
             
             # Linked PPs
             root_pp_items = frappe.db.sql("""
-                SELECT pp.name as pp_name, pp.posting_date as pp_date, ppi.planned_qty, ppi.produced_qty as finished_qty
+                SELECT pp.name as pp_name, pp.posting_date as pp_date, pp.status as pp_status, ppi.planned_qty, ppi.produced_qty as finished_qty
                 FROM `tabProduction Plan Item` ppi
                 INNER JOIN `tabProduction Plan` pp ON ppi.parent = pp.name
                 WHERE ppi.sales_order = %s AND ppi.sales_order_item = %s AND pp.docstatus = 1
@@ -335,6 +349,9 @@ def get_data(filters):
             total_wo_qty = state["max_wo_qty"]
             prev_comp = total_wo_qty
             
+            bin_qty = frappe.db.sql("SELECT sum(actual_qty) FROM `tabBin` WHERE item_code = %s", (branch_item,))
+            actual_stock_qty = bin_qty[0][0] if bin_qty and bin_qty[0][0] else 0.0
+            
             row = {
                 "id": row_id,
                 "parent_id": parent_id,
@@ -343,6 +360,7 @@ def get_data(filters):
                 "item_code": branch_item,
                 "item_name": frappe.db.get_value("Item", branch_item, "item_name") or branch_item,
                 "order_qty": branch_req_qty,
+                "stock_qty": actual_stock_qty,
                 "wo_qty": total_wo_qty,
                 "subcontract_kgs": state["subcontract_kgs"],
                 "has_child": state["has_child"]
@@ -354,9 +372,9 @@ def get_data(filters):
                         "sales_order": rdata.so_name,
                         "customer_name": rdata.customer_name,
                         "so_date": rdata.so_date,
-                        "stock_qty": rdata.stock_qty,
                         "production_plan": ", ".join(list(set(root_pp_names))),
                         "pp_date": ", ".join(list(set([str(p.pp_date) for p in root_pp_items]))),
+                        "pp_status": ", ".join(list(set([str(p.pp_status) for p in root_pp_items if p.pp_status]))),
                         "pp_qty": sum([get_qty_pcs(root_item_code, root_item_code, p.planned_qty) for p in root_pp_items]),
                         "pp_bal": sum([get_qty_pcs(root_item_code, root_item_code, p.planned_qty - p.get("finished_qty", 0.0)) for p in root_pp_items]),
                         "dispatch_qty": dispatch_qty_pcs,
@@ -366,6 +384,7 @@ def get_data(filters):
                     row.update({
                         "production_plan": rdata.pp_name,
                         "pp_date": rdata.pp_date,
+                        "pp_status": rdata.pp_status,
                         "pp_qty": branch_req_qty,
                         "pp_bal": branch_req_qty - get_qty_pcs(root_item_code, root_item_code, rdata.get("finished_qty", 0.0))
                     })
