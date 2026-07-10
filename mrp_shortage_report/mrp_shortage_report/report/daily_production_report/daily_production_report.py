@@ -42,14 +42,49 @@ def get_data(filters):
     if not job_cards:
         return data
     
-    # Pre-fetch Item Weights
-    item_weights = {}
+    # Pre-fetch Item UOMs
+    item_uoms = {}
     items = set([jc.item_code for jc in job_cards if jc.item_code])
     if items:
-        weights = frappe.db.sql("SELECT name, weight_per_unit FROM `tabItem` WHERE name IN %s", (tuple(items),), as_dict=1)
-        for w in weights:
-            item_weights[w.name] = w.weight_per_unit or 0.0
+        uom_data = frappe.db.sql("SELECT name, stock_uom, weight_per_unit FROM `tabItem` WHERE name IN %s", (tuple(items),), as_dict=1)
+        for u in uom_data:
+            item_uoms[u.name] = {
+                "stock_uom": (u.stock_uom or "").strip().lower(),
+                "weight_per_unit": u.weight_per_unit or 0.0
+            }
 
+    # Memoize BOM conversion factors
+    bom_conversion_cache = {}
+
+    def get_kg_to_pc_factor(current_item):
+        if current_item in bom_conversion_cache:
+            return bom_conversion_cache[current_item]
+            
+        uom = frappe.db.get_value("Item", current_item, "stock_uom")
+        if uom and uom.lower() in ["nos", "pcs", "pieces"]:
+            bom_conversion_cache[current_item] = 1.0
+            return 1.0
+            
+        parent_link = frappe.db.sql("""
+            SELECT bi.parent, bi.stock_qty, b.item as parent_item, b.quantity as base_qty
+            FROM `tabBOM Item` bi
+            JOIN `tabBOM` b ON bi.parent = b.name
+            WHERE bi.item_code = %s AND b.is_active = 1
+            LIMIT 1
+        """, (current_item,), as_dict=1)
+        
+        if not parent_link:
+            bom_conversion_cache[current_item] = 1.0
+            return 1.0
+            
+        link = parent_link[0]
+        qty_required = link.stock_qty / (link.base_qty or 1.0)
+        
+        parent_factor = get_kg_to_pc_factor(link.parent_item)
+        final_factor = qty_required * parent_factor
+        bom_conversion_cache[current_item] = final_factor
+        return final_factor
+        
     # Pre-fetch BOM Scrap logic
     bom_scrap_ratios = {}
     boms = set([jc.bom_no for jc in job_cards if jc.bom_no])
@@ -93,21 +128,30 @@ def get_data(filters):
         if time_logs and time_logs[0]:
             operator_name = time_logs[0].get("emp_names") or ""
             emp_ids = time_logs[0].get("emp_ids") or ""
-            
-            # Apply employee filter natively here if needed
             if filter_employee and filter_employee not in emp_ids:
                 employee_match = False
                 
         if not employee_match:
             continue
             
-        # Production Qty in Kgs
-        weight = item_weights.get(jc.item_code, 0.0)
-        production_qty_kgs = (jc.production_qty_pcs or 0.0) * weight
+        # Determine UOM and calculate Pcs vs Kgs
+        item_info = item_uoms.get(jc.item_code, {})
+        uom = item_info.get("stock_uom", "")
+        weight = item_info.get("weight_per_unit", 0.0)
         
-        # Scrap as per BOM
+        raw_qty = jc.production_qty_pcs or 0.0
+        
+        if uom in ["kg", "kgs"]:
+            production_qty_kgs = raw_qty
+            factor = get_kg_to_pc_factor(jc.item_code)
+            production_qty_pcs = raw_qty / factor if factor > 0 else raw_qty
+        else:
+            production_qty_pcs = raw_qty
+            production_qty_kgs = raw_qty * weight
+        
+        # Scrap as per BOM (based on the Job Card's base QTY which is raw_qty)
         ratio = bom_scrap_ratios.get(jc.bom_no, 0.0)
-        scrap_as_per_bom = (jc.production_qty_pcs or 0.0) * ratio
+        scrap_as_per_bom = raw_qty * ratio
         
         # Actual Scrap from Job Card Scrap Items
         actual_scrap = 0.0
@@ -127,7 +171,7 @@ def get_data(filters):
             "operation": jc.operation,
             "operation_time": jc.operation_time,
             "operator_name": operator_name,
-            "production_qty_pcs": jc.production_qty_pcs,
+            "production_qty_pcs": production_qty_pcs,
             "production_qty_kgs": production_qty_kgs,
             "scrap_as_per_bom": scrap_as_per_bom,
             "actual_scrap": actual_scrap,
