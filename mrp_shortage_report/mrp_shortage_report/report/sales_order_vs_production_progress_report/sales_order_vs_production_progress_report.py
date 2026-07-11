@@ -137,6 +137,15 @@ def get_data(filters):
             )
         """)
         so_values["pp_status"] = filters.get("pp_status")
+    if filters.get("production_plan"):
+        so_conditions.append("""
+            EXISTS (
+                SELECT 1 FROM `tabProduction Plan Item` ppi3 
+                WHERE ppi3.sales_order = so.name AND ppi3.sales_order_item = soi.name 
+                AND ppi3.parent = %(production_plan)s
+            )
+        """)
+        so_values["production_plan"] = filters.get("production_plan")
         
     so_query = f"""
         SELECT
@@ -251,12 +260,18 @@ def get_data(filters):
             dispatch_qty_pcs = get_qty_pcs(root_item_code, root_item_code, dispatch_qty)
             
             # Linked PPs
-            root_pp_items = frappe.db.sql("""
+            pp_where = "ppi.sales_order = %s AND ppi.sales_order_item = %s AND pp.docstatus = 1"
+            pp_args = [rdata.so_name, rdata.soi_name]
+            if filters.get("production_plan"):
+                pp_where += " AND pp.name = %s"
+                pp_args.append(filters.get("production_plan"))
+                
+            root_pp_items = frappe.db.sql(f"""
                 SELECT pp.name as pp_name, pp.posting_date as pp_date, pp.status as pp_status, ppi.planned_qty, ppi.produced_qty as finished_qty
                 FROM `tabProduction Plan Item` ppi
                 INNER JOIN `tabProduction Plan` pp ON ppi.parent = pp.name
-                WHERE ppi.sales_order = %s AND ppi.sales_order_item = %s AND pp.docstatus = 1
-            """, (rdata.so_name, rdata.soi_name), as_dict=1)
+                WHERE {pp_where}
+            """, tuple(pp_args), as_dict=1)
             root_pp_names = [p.pp_name for p in root_pp_items]
             
             # Linked WOs
