@@ -56,6 +56,11 @@ frappe.query_reports["Sales order Vs Production Progress Report"] = {
 			"label": __("Production Plan Status"),
 			"fieldtype": "Select",
 			"options": "\nDraft\nSubmitted\nNot Started\nIn Process\nCompleted\nStopped\nClosed\nMaterial Requested",
+		},
+        {
+			"fieldname": "has_subcontract_stock",
+			"label": __("Only Show Items With Subcontractor Stock"),
+			"fieldtype": "Check"
 		}
 	],
 	"formatter": function(value, row, column, data, default_formatter) {

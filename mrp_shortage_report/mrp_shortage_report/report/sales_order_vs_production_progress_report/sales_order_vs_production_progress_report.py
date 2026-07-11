@@ -447,6 +447,20 @@ def get_data(filters):
                         
         process_branch(root_item_code, fg_bom, "", 0, root_req_qty, is_root=True)
 
+    if filters.get("has_subcontract_stock"):
+        valid_ids = set()
+        for row in data:
+            if row.get("subcontract_kgs", 0) > 0:
+                current_id = row.get("id")
+                while current_id:
+                    valid_ids.add(current_id)
+                    parent_row = next((r for r in data if r.get("id") == current_id), None)
+                    if parent_row:
+                        current_id = parent_row.get("parent_id")
+                    else:
+                        break
+        data = [row for row in data if row.get("id") in valid_ids]
+
     if data:
         total_row = {
             "id": frappe.generate_hash(length=8),
