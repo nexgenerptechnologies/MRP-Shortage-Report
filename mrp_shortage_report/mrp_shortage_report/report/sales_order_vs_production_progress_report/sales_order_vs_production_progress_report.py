@@ -318,7 +318,8 @@ def get_data(filters):
                         SELECT sum(b.actual_qty) 
                         FROM `tabBin` b
                         INNER JOIN `tabWarehouse` w ON b.warehouse = w.name
-                        WHERE b.item_code = %s AND w.warehouse_type = 'Subcontracting'
+                        WHERE b.item_code = %s 
+                        AND (w.warehouse_type = 'Subcontracting' OR w.parent_warehouse LIKE '%%Subcontracting%%' OR w.name LIKE '%%Subcontracting%%')
                     """, (current_item,))
                     if bin_qty and bin_qty[0][0]:
                         state["subcontract_kgs"] += bin_qty[0][0]
