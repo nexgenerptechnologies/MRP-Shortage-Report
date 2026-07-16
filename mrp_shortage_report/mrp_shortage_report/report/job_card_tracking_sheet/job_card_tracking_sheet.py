@@ -66,8 +66,9 @@ def get_data(filters):
             IFNULL(woi.total_required, 0) - IFNULL(woi.total_received, 0) as pending_to_receive,
             IFNULL(woi.qty_consumed, 0) as qty_consumed,
             IFNULL(woi.total_received, 0) - IFNULL(woi.qty_consumed, 0) as available_on_floor,
-            jc.total_completed_qty as _jc_completed_raw,
-            jc.for_quantity - jc.total_completed_qty as _balance_to_complete_jc_raw
+            
+            (jc.total_completed_qty * (IFNULL(woi.total_required, 0) / NULLIF(wo.qty, 0))) as jc_completed,
+            ((jc.for_quantity - jc.total_completed_qty) * (IFNULL(woi.total_required, 0) / NULLIF(wo.qty, 0))) as balance_to_complete_jc
         FROM
             `tabJob Card` jc
         INNER JOIN
@@ -89,44 +90,4 @@ def get_data(filters):
             jc.posting_date DESC, jc.work_order ASC
     """
 
-    data = frappe.db.sql(query, as_dict=1)
-    
-    # Conversion cache
-    conversion_cache = {}
-    
-    for row in data:
-        item_code = row.get("item_code")
-        if not item_code:
-            row["jc_completed"] = row.get("_jc_completed_raw", 0.0)
-            row["balance_to_complete_jc"] = row.get("_balance_to_complete_jc_raw", 0.0)
-            continue
-            
-        if item_code not in conversion_cache:
-            item_doc = frappe.get_cached_doc("Item", item_code)
-            stock_uom = item_doc.stock_uom and item_doc.stock_uom.strip().lower()
-            
-            kgs_factor = 1.0
-            if stock_uom in ['pcs', 'nos', 'piece']:
-                for uom in item_doc.uoms:
-                    if uom.uom.strip().lower() in ['kg', 'kgs']:
-                        kgs_factor = 1.0 / (uom.conversion_factor or 1.0)
-                        break
-                        
-            conversion_cache[item_code] = {
-                "stock_uom": stock_uom,
-                "kgs_factor": kgs_factor
-            }
-            
-        cache = conversion_cache[item_code]
-        
-        jc_comp_raw = row.get("_jc_completed_raw", 0.0)
-        bal_comp_raw = row.get("_balance_to_complete_jc_raw", 0.0)
-        
-        if cache["stock_uom"] in ['pcs', 'nos', 'piece']:
-            row["jc_completed"] = jc_comp_raw * cache["kgs_factor"]
-            row["balance_to_complete_jc"] = bal_comp_raw * cache["kgs_factor"]
-        else:
-            row["jc_completed"] = jc_comp_raw
-            row["balance_to_complete_jc"] = bal_comp_raw
-
-    return data
+    return frappe.db.sql(query, as_dict=1)
