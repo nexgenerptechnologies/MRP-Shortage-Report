@@ -61,17 +61,27 @@ def get_data(filters):
             jc.production_item as item_code,
             jc.item_name,
             jc.operation,
-            wo.qty as total_required,
-            wo.material_transferred_for_manufacturing as total_received,
-            wo.qty - wo.material_transferred_for_manufacturing as pending_to_receive,
-            wo.produced_qty as qty_consumed,
-            wo.material_transferred_for_manufacturing - wo.produced_qty as available_on_floor,
+            IFNULL(woi.total_required, 0) as total_required,
+            IFNULL(woi.total_received, 0) as total_received,
+            IFNULL(woi.total_required, 0) - IFNULL(woi.total_received, 0) as pending_to_receive,
+            IFNULL(woi.qty_consumed, 0) as qty_consumed,
+            IFNULL(woi.total_received, 0) - IFNULL(woi.qty_consumed, 0) as available_on_floor,
             jc.total_completed_qty as jc_completed,
             jc.for_quantity - jc.total_completed_qty as balance_to_complete_jc
         FROM
             `tabJob Card` jc
         INNER JOIN
             `tabWork Order` wo ON jc.work_order = wo.name
+        LEFT JOIN
+            (
+                SELECT 
+                    parent, 
+                    SUM(required_qty) as total_required, 
+                    SUM(transferred_qty) as total_received, 
+                    SUM(consumed_qty) as qty_consumed 
+                FROM `tabWork Order Item` 
+                GROUP BY parent
+            ) woi ON woi.parent = wo.name
         WHERE
             {where_clause}
             AND jc.docstatus < 2
