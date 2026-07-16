@@ -40,6 +40,12 @@ frappe.query_reports["Job Card Tracking Sheet"] = {
             "label": __("Operation"),
             "fieldtype": "Link",
             "options": "Operation"
+        },
+        {
+            "fieldname": "status",
+            "label": __("Status"),
+            "fieldtype": "Select",
+            "options": "\nOpen\nWork In Progress\nCompleted\nMaterial Transferred\nOn Hold\nCancelled"
         }
     ]
 };

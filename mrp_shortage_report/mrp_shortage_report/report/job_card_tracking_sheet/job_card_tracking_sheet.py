@@ -50,6 +50,8 @@ def get_data(filters):
         conditions.append(f"jc.production_item = '{filters.get('item_code')}'")
     if filters.get("operation"):
         conditions.append(f"jc.operation = '{filters.get('operation')}'")
+    if filters.get("status"):
+        conditions.append(f"jc.status = '{filters.get('status')}'")
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
