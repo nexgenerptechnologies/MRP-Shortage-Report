@@ -16,11 +16,11 @@ def get_columns():
         {"fieldname": "operation", "label": _("Operation"), "fieldtype": "Link", "options": "Operation", "width": 120},
         {"fieldname": "operator_name", "label": _("Operator Name"), "fieldtype": "Data", "width": 120},
         {"fieldname": "workstation", "label": _("Workstation"), "fieldtype": "Data", "width": 120},
-        {"fieldname": "operation_time_mints", "label": _("Operation Time (Mints)"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "operation_time_mints", "label": _("Operation Time (Mints)"), "fieldtype": "Data", "width": 160},
         {"fieldname": "shift", "label": _("Shift"), "fieldtype": "Data", "width": 100},
-        {"fieldname": "production_qty_pcs", "label": _("Production Qty (Pcs)"), "fieldtype": "Float", "width": 160},
-        {"fieldname": "production_qty_kgs", "label": _("Production Qty (Kgs)"), "fieldtype": "Float", "width": 160},
-        {"fieldname": "scrap_kgs", "label": _("Scrap (Kgs)"), "fieldtype": "Float", "width": 120},
+        {"fieldname": "production_qty_pcs", "label": _("Production Qty (Pcs)"), "fieldtype": "Data", "width": 160},
+        {"fieldname": "production_qty_kgs", "label": _("Production Qty (Kgs)"), "fieldtype": "Data", "width": 160},
+        {"fieldname": "scrap_kgs", "label": _("Scrap (Kgs)"), "fieldtype": "Data", "width": 120},
         {"fieldname": "total_required", "label": _("Total Required"), "fieldtype": "Float", "width": 120},
         {"fieldname": "total_received", "label": _("Total Received"), "fieldtype": "Float", "width": 120},
         {"fieldname": "pending_to_receive", "label": _("Pending to Receive"), "fieldtype": "Float", "width": 140},
@@ -40,7 +40,12 @@ def get_data(filters):
     if filters.get("company"):
         conditions.append(f"jc.company = '{filters.get('company')}'")
     if filters.get("work_order"):
-        conditions.append(f"jc.work_order = '{filters.get('work_order')}'")
+        work_orders = filters.get("work_order")
+        if isinstance(work_orders, list):
+            wo_list = ", ".join(f"'{wo}'" for wo in work_orders)
+            conditions.append(f"jc.work_order IN ({wo_list})")
+        else:
+            conditions.append(f"jc.work_order IN ('{work_orders}')")
     if filters.get("item_code"):
         conditions.append(f"jc.production_item = '{filters.get('item_code')}'")
     if filters.get("operation"):

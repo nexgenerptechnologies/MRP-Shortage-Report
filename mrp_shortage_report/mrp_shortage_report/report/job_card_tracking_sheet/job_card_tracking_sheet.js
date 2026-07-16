@@ -23,8 +23,11 @@ frappe.query_reports["Job Card Tracking Sheet"] = {
         {
             "fieldname": "work_order",
             "label": __("Work Order"),
-            "fieldtype": "Link",
-            "options": "Work Order"
+            "fieldtype": "MultiSelectList",
+            "options": "Work Order",
+            "get_data": function(txt) {
+                return frappe.db.get_link_options('Work Order', txt);
+            }
         },
         {
             "fieldname": "item_code",
