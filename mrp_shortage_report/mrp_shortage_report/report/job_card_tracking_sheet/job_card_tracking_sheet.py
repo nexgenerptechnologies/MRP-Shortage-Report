@@ -67,8 +67,8 @@ def get_data(filters):
             IFNULL(woi.qty_consumed, 0) as qty_consumed,
             IFNULL(woi.total_received, 0) - IFNULL(woi.qty_consumed, 0) as available_on_floor,
             
-            (jc.total_completed_qty * (IFNULL(woi.total_required, 0) / NULLIF(wo.qty, 0))) as jc_completed,
-            ((jc.for_quantity - jc.total_completed_qty) * (IFNULL(woi.total_required, 0) / NULLIF(wo.qty, 0))) as balance_to_complete_jc
+            jc.total_completed_qty as _jc_completed_raw,
+            jc.for_quantity as _jc_for_quantity_raw
         FROM
             `tabJob Card` jc
         INNER JOIN
@@ -90,4 +90,25 @@ def get_data(filters):
             jc.posting_date DESC, jc.work_order ASC
     """
 
-    return frappe.db.sql(query, as_dict=1)
+    data = frappe.db.sql(query, as_dict=1)
+    
+    for row in data:
+        req_qty = row.get("total_required", 0.0)
+        rec_qty = row.get("total_received", 0.0)
+        
+        jc_comp_raw = row.get("_jc_completed_raw", 0.0)
+        jc_for_qty_raw = row.get("_jc_for_quantity_raw", 0.0)
+        
+        # Calculate max_fg based on dashboard javascript logic: (rec_qty / req_qty) * target_qty
+        max_fg = 0.0
+        if req_qty > 0:
+            max_fg = (rec_qty / req_qty) * jc_for_qty_raw
+            
+        bal_jc = max_fg - jc_comp_raw
+        if bal_jc < 0:
+            bal_jc = 0.0
+            
+        row["jc_completed"] = jc_comp_raw
+        row["balance_to_complete_jc"] = bal_jc
+
+    return data
