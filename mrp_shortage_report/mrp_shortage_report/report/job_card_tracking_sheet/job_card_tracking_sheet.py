@@ -67,8 +67,8 @@ def get_data(filters):
             IFNULL(woi.qty_consumed, 0) as qty_consumed,
             IFNULL(woi.total_received, 0) - IFNULL(woi.qty_consumed, 0) as available_on_floor,
             
-            jc.total_completed_qty as _jc_completed_raw,
-            jc.for_quantity as _jc_for_quantity_raw
+            IFNULL(last_op.completed_qty, wo.produced_qty) as _jc_completed_raw,
+            wo.qty as _wo_qty_raw
         FROM
             `tabJob Card` jc
         INNER JOIN
@@ -83,6 +83,14 @@ def get_data(filters):
                 FROM `tabWork Order Item` 
                 GROUP BY parent
             ) woi ON woi.parent = wo.name
+        LEFT JOIN
+            (
+                SELECT parent, completed_qty 
+                FROM `tabWork Order Operation` op1
+                WHERE idx = (
+                    SELECT MAX(idx) FROM `tabWork Order Operation` op2 WHERE op2.parent = op1.parent
+                )
+            ) last_op ON last_op.parent = wo.name
         WHERE
             {where_clause}
             AND jc.docstatus < 2
@@ -97,12 +105,12 @@ def get_data(filters):
         rec_qty = row.get("total_received", 0.0)
         
         jc_comp_raw = row.get("_jc_completed_raw", 0.0)
-        jc_for_qty_raw = row.get("_jc_for_quantity_raw", 0.0)
+        wo_qty_raw = row.get("_wo_qty_raw", 0.0)
         
         # Calculate max_fg based on dashboard javascript logic: (rec_qty / req_qty) * target_qty
         max_fg = 0.0
         if req_qty > 0:
-            max_fg = (rec_qty / req_qty) * jc_for_qty_raw
+            max_fg = (rec_qty / req_qty) * wo_qty_raw
             
         bal_jc = max_fg - jc_comp_raw
         if bal_jc < 0:
