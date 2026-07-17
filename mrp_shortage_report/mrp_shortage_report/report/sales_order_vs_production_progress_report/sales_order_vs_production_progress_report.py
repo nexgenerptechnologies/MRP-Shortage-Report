@@ -358,7 +358,8 @@ def get_data(filters):
                 "cut_comp": 0.0, "vibro_comp": 0.0, "plate_comp": 0.0, "pack_comp": 0.0,
                 "req_ops": set(),
                 "has_child": 0,
-                "subcontract_kgs": 0.0
+                "subcontract_kgs": 0.0,
+                "subcontract_pcs": 0.0
             }
             
             def traverse_wip(current_item, bom_no, req_qty):
@@ -392,7 +393,9 @@ def get_data(filters):
                         AND (w.warehouse_type = 'Subcontracting' OR w.parent_warehouse LIKE '%%Subcontracting%%' OR w.name LIKE '%%Subcontracting%%')
                     """, (current_item,))
                     if bin_qty and bin_qty[0][0]:
-                        state["subcontract_kgs"] += bin_qty[0][0]
+                        raw_kgs = bin_qty[0][0]
+                        state["subcontract_kgs"] += raw_kgs
+                        state["subcontract_pcs"] += get_qty_pcs(root_item_code, current_item, raw_kgs)
                         
                 # Recurse
                 if bom_no:
@@ -502,10 +505,7 @@ def get_data(filters):
             
             row["wo_qty_kgs"] = row.get("wo_qty", 0.0) * kgs_factor
             
-            # Since subcontract_kgs is raw component kgs, subcontract_pcs is the equivalent FG Pcs
-            # which is better calculated using get_qty_pcs. But we already have the raw Kgs.
-            # To get FG Pcs from raw Component Kgs, we should use get_qty_pcs directly.
-            row["subcontract_pcs"] = get_qty_pcs(root_item_code, branch_item, row.get("subcontract_kgs", 0.0))
+            row["subcontract_pcs"] = state["subcontract_pcs"]
             
             row["cut_comp_kgs"] = row.get("cut_comp", 0.0) * kgs_factor
             row["cut_bal_kgs"] = row.get("cut_bal", 0.0) * kgs_factor
