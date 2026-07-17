@@ -102,9 +102,8 @@ def get_data(filters):
         
     wo_names = [d["work_order"] for d in data]
     
-    # Fetch all work order items for accurate unit conversions
     wo_items = frappe.db.sql(f"""
-        SELECT parent, item_code, required_qty, transferred_qty, consumed_qty
+        SELECT parent, item_code, required_qty, transferred_qty, consumed_qty, source_uom
         FROM `tabWork Order Item`
         WHERE parent IN ({", ".join(["%s"] * len(wo_names))})
     """, tuple(wo_names), as_dict=1)
@@ -115,72 +114,48 @@ def get_data(filters):
             wo_item_map[item.parent] = []
         wo_item_map[item.parent].append(item)
         
-    conversion_cache = {}
-    
-    def get_qty_in_kgs_and_pcs(item_code, qty):
-        if not qty: return 0.0, 0.0
+    def get_pcs(qty, weight, uom):
+        if not qty: return 0.0
+        u = (uom or "").lower()
+        if 'pc' in u or 'nos' in u:
+            return qty
+        if not weight or weight == 0:
+            return qty # Fallback to avoid division by zero
+        return qty / weight
         
-        if item_code not in conversion_cache:
-            item_doc = frappe.get_cached_doc("Item", item_code)
-            stock_uom = item_doc.stock_uom and item_doc.stock_uom.strip().lower()
-            
-            pcs_factor = 1.0
-            kgs_factor = 1.0
-            weight_per_unit = getattr(item_doc, "weight_per_unit", 0.0)
-            
-            if stock_uom in ['kg', 'kgs']:
-                if weight_per_unit:
-                    pcs_factor = 1.0 / weight_per_unit
-                else:
-                    for uom in item_doc.uoms:
-                        if uom.uom.strip().lower() in ['pcs', 'nos', 'piece']:
-                            pcs_factor = 1.0 / (uom.conversion_factor or 1.0)
-                            break
-            elif stock_uom in ['pcs', 'nos', 'piece']:
-                if weight_per_unit:
-                    kgs_factor = weight_per_unit
-                else:
-                    for uom in item_doc.uoms:
-                        if uom.uom.strip().lower() in ['kg', 'kgs']:
-                            kgs_factor = 1.0 / (uom.conversion_factor or 1.0)
-                            break
-                            
-            conversion_cache[item_code] = {
-                "stock_uom": stock_uom,
-                "pcs_factor": pcs_factor,
-                "kgs_factor": kgs_factor
-            }
-            
-        cache = conversion_cache[item_code]
-        stock_uom = cache["stock_uom"]
-        
-        if stock_uom in ['kg', 'kgs']:
-            qty_kgs = qty
-            qty_pcs = qty * cache["pcs_factor"]
-        elif stock_uom in ['pcs', 'nos', 'piece']:
-            qty_pcs = qty
-            qty_kgs = qty * cache["kgs_factor"]
-        else:
-            qty_pcs = qty
-            qty_kgs = qty * cache["kgs_factor"]
-            
-        return qty_kgs, qty_pcs
-    
     for row in data:
         wo_name = row["work_order"]
+        bom_no = frappe.db.get_value("Work Order", wo_name, "bom_no")
+        
+        item_weights = {}
+        fg_wt = 0.0
+        
+        if bom_no:
+            bom_doc = frappe.get_cached_doc("BOM", bom_no)
+            fg_wt = getattr(bom_doc, "quantity", 0.0)
+            for b_item in getattr(bom_doc, "items", []):
+                item_weights[b_item.item_code] = b_item.qty
+                
         items = wo_item_map.get(wo_name, [])
         
-        tot_req_kgs = 0.0
-        tot_req_pcs = 0.0
-        tot_rec_kgs = 0.0
-        tot_rec_pcs = 0.0
-        tot_cons_kgs = 0.0
-        tot_cons_pcs = 0.0
+        tot_req_kgs = 0.0; tot_req_pcs = 0.0
+        tot_rec_kgs = 0.0; tot_rec_pcs = 0.0
+        tot_cons_kgs = 0.0; tot_cons_pcs = 0.0
         
         for itm in items:
-            req_k, req_p = get_qty_in_kgs_and_pcs(itm.item_code, itm.required_qty)
-            rec_k, rec_p = get_qty_in_kgs_and_pcs(itm.item_code, itm.transferred_qty)
-            con_k, con_p = get_qty_in_kgs_and_pcs(itm.item_code, itm.consumed_qty)
+            req_k = itm.required_qty or 0.0
+            rec_k = itm.transferred_qty or 0.0
+            con_k = itm.consumed_qty or 0.0
+            
+            wt = item_weights.get(itm.item_code)
+            if not wt:
+                wt = frappe.db.get_value("Item", itm.item_code, "weight_per_unit") or 1.0
+                
+            itm_uom = itm.source_uom or frappe.db.get_value("Item", itm.item_code, "stock_uom") or ""
+            
+            req_p = get_pcs(req_k, wt, itm_uom)
+            rec_p = get_pcs(rec_k, wt, itm_uom)
+            con_p = get_pcs(con_k, wt, itm_uom)
             
             tot_req_kgs += req_k; tot_req_pcs += req_p
             tot_rec_kgs += rec_k; tot_rec_pcs += rec_p
@@ -201,50 +176,24 @@ def get_data(filters):
         row["available_on_floor"] = tot_rec_kgs - tot_cons_kgs
         row["available_on_floor_pcs"] = tot_rec_pcs - tot_cons_pcs
         
-        # Finished Good logic for JC Completed and Balance
+        # Finished Good logic exactly as per UI Script
         fg_item = row["item_code"]
         jc_comp_raw = row.get("_jc_completed_raw", 0.0)
         wo_qty_raw = row.get("_wo_qty_raw", 0.0)
         
-        # Determine Finished Good weight from the linked BOM!
-        # tot_req_kgs is the total weight of raw materials required to make wo_qty_raw
-        kg_per_fg_pc = (tot_req_kgs / wo_qty_raw) if wo_qty_raw > 0 else 0.0
+        max_fg = 0.0
+        if tot_req_kgs > 0:
+            max_fg = (tot_rec_kgs / tot_req_kgs) * wo_qty_raw
+            
+        bal_jc = max_fg - jc_comp_raw
+        if bal_jc < 0: bal_jc = 0.0
         
         fg_uom = frappe.db.get_value("Item", fg_item, "stock_uom") or ""
-        fg_uom = fg_uom.strip().lower()
         
-        if fg_uom in ['kg', 'kgs']:
-            # The Work Order itself is in Kgs
-            wo_qty_kgs = wo_qty_raw
-            wo_qty_pcs = wo_qty_raw / kg_per_fg_pc if kg_per_fg_pc > 0 else wo_qty_raw
-            
-            jc_comp_kgs = jc_comp_raw
-            jc_comp_pcs = jc_comp_raw / kg_per_fg_pc if kg_per_fg_pc > 0 else jc_comp_raw
-        else:
-            # The Work Order is in Pcs (default)
-            wo_qty_pcs = wo_qty_raw
-            wo_qty_kgs = wo_qty_raw * kg_per_fg_pc
-            
-            jc_comp_pcs = jc_comp_raw
-            jc_comp_kgs = jc_comp_raw * kg_per_fg_pc
-            
-        max_fg_kgs = 0.0
-        max_fg_pcs = 0.0
+        row["jc_completed"] = jc_comp_raw
+        row["balance_to_complete_jc"] = bal_jc
         
-        if tot_req_kgs > 0:
-            max_fg_kgs = (tot_rec_kgs / tot_req_kgs) * wo_qty_kgs
-            max_fg_pcs = (tot_rec_kgs / tot_req_kgs) * wo_qty_pcs
-            
-        bal_jc_kgs = max_fg_kgs - jc_comp_kgs
-        if bal_jc_kgs < 0: bal_jc_kgs = 0.0
-        
-        bal_jc_pcs = max_fg_pcs - jc_comp_pcs
-        if bal_jc_pcs < 0: bal_jc_pcs = 0.0
-        
-        row["jc_completed"] = jc_comp_kgs
-        row["jc_completed_pcs"] = jc_comp_pcs
-        
-        row["balance_to_complete_jc"] = bal_jc_kgs
-        row["balance_to_complete_jc_pcs"] = bal_jc_pcs
+        row["jc_completed_pcs"] = get_pcs(jc_comp_raw, fg_wt, fg_uom)
+        row["balance_to_complete_jc_pcs"] = get_pcs(bal_jc, fg_wt, fg_uom)
 
     return data
