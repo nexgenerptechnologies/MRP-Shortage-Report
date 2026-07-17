@@ -76,35 +76,22 @@ def get_data(filters):
             '' as production_qty_kgs,
             '' as scrap_kgs,
             IFNULL(woi.total_required, 0) as total_required,
-            IFNULL(woi.total_required_pcs, 0) as total_required_pcs,
             IFNULL(woi.total_received, 0) as total_received,
-            IFNULL(woi.total_received_pcs, 0) as total_received_pcs,
-            IFNULL(woi.total_required, 0) - IFNULL(woi.total_received, 0) as pending_to_receive,
-            IFNULL(woi.total_required_pcs, 0) - IFNULL(woi.total_received_pcs, 0) as pending_to_receive_pcs,
             IFNULL(woi.qty_consumed, 0) as qty_consumed,
-            IFNULL(woi.qty_consumed_pcs, 0) as qty_consumed_pcs,
-            IFNULL(woi.total_received, 0) - IFNULL(woi.qty_consumed, 0) as available_on_floor,
-            IFNULL(woi.total_received_pcs, 0) - IFNULL(woi.qty_consumed_pcs, 0) as available_on_floor_pcs,
             
             IFNULL(last_op.completed_qty, wo.produced_qty) as _jc_completed_raw,
-            wo.qty as _wo_qty_raw,
-            IFNULL(NULLIF(i_wo.weight_per_unit, 0), 1) as _fg_weight
+            wo.qty as _wo_qty_raw
         FROM
             `tabWork Order` wo
-        LEFT JOIN `tabItem` i_wo ON wo.production_item = i_wo.name
         LEFT JOIN
             (
                 SELECT 
-                    woi.parent, 
-                    SUM(woi.required_qty) as total_required, 
-                    SUM(woi.transferred_qty) as total_received, 
-                    SUM(woi.consumed_qty) as qty_consumed,
-                    SUM(woi.required_qty / IFNULL(NULLIF(i.weight_per_unit, 0), 1)) as total_required_pcs,
-                    SUM(woi.transferred_qty / IFNULL(NULLIF(i.weight_per_unit, 0), 1)) as total_received_pcs,
-                    SUM(woi.consumed_qty / IFNULL(NULLIF(i.weight_per_unit, 0), 1)) as qty_consumed_pcs
-                FROM `tabWork Order Item` woi
-                LEFT JOIN `tabItem` i ON woi.item_code = i.name
-                GROUP BY woi.parent
+                    parent, 
+                    SUM(required_qty) as total_required, 
+                    SUM(transferred_qty) as total_received, 
+                    SUM(consumed_qty) as qty_consumed
+                FROM `tabWork Order Item`
+                GROUP BY parent
             ) woi ON woi.parent = wo.name
         LEFT JOIN
             (
@@ -124,25 +111,40 @@ def get_data(filters):
     data = frappe.db.sql(query, as_dict=1)
     
     for row in data:
-        req_qty = row.get("total_required", 0.0)
-        rec_qty = row.get("total_received", 0.0)
+        req_qty = row.get("total_required", 0.0) # Kgs
+        rec_qty = row.get("total_received", 0.0) # Kgs
+        qty_consumed = row.get("qty_consumed", 0.0) # Kgs
         
-        jc_comp_raw = row.get("_jc_completed_raw", 0.0)
-        wo_qty_raw = row.get("_wo_qty_raw", 0.0)
-        fg_weight = row.get("_fg_weight", 1.0)
+        jc_comp_raw = row.get("_jc_completed_raw", 0.0) # Pcs
+        wo_qty_raw = row.get("_wo_qty_raw", 0.0) # Pcs
         
-        # Calculate max_fg based on dashboard javascript logic: (rec_qty / req_qty) * target_qty
-        max_fg = 0.0
-        if req_qty > 0:
-            max_fg = (rec_qty / req_qty) * wo_qty_raw
+        # Calculate conversion factors based on BOM (Total Required Kgs / Work Order Qty Pcs)
+        if req_qty > 0 and wo_qty_raw > 0:
+            pcs_per_kg = wo_qty_raw / req_qty
+            kg_per_pc = req_qty / wo_qty_raw
+        else:
+            pcs_per_kg = 0.0
+            kg_per_pc = 0.0
             
-        bal_jc = max_fg - jc_comp_raw
-        if bal_jc < 0:
-            bal_jc = 0.0
+        # Kgs calculations
+        row["pending_to_receive"] = req_qty - rec_qty
+        row["available_on_floor"] = rec_qty - qty_consumed
+        row["jc_completed"] = jc_comp_raw * kg_per_pc
+        
+        # Pcs calculations
+        row["total_required_pcs"] = wo_qty_raw
+        row["total_received_pcs"] = rec_qty * pcs_per_kg
+        row["pending_to_receive_pcs"] = row["pending_to_receive"] * pcs_per_kg
+        row["qty_consumed_pcs"] = qty_consumed * pcs_per_kg
+        row["available_on_floor_pcs"] = row["available_on_floor"] * pcs_per_kg
+        
+        row["jc_completed_pcs"] = jc_comp_raw
+        
+        bal_jc_pcs = row["total_received_pcs"] - jc_comp_raw
+        if bal_jc_pcs < 0:
+            bal_jc_pcs = 0.0
             
-        row["jc_completed"] = jc_comp_raw
-        row["jc_completed_pcs"] = jc_comp_raw / fg_weight
-        row["balance_to_complete_jc"] = bal_jc
-        row["balance_to_complete_jc_pcs"] = bal_jc / fg_weight
+        row["balance_to_complete_jc_pcs"] = bal_jc_pcs
+        row["balance_to_complete_jc"] = bal_jc_pcs * kg_per_pc
 
     return data
