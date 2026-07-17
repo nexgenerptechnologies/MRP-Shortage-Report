@@ -103,7 +103,7 @@ def get_data(filters):
     wo_names = [d["work_order"] for d in data]
     
     wo_items = frappe.db.sql(f"""
-        SELECT parent, item_code, required_qty, transferred_qty, consumed_qty, source_uom
+        SELECT parent, item_code, required_qty, transferred_qty, consumed_qty
         FROM `tabWork Order Item`
         WHERE parent IN ({", ".join(["%s"] * len(wo_names))})
     """, tuple(wo_names), as_dict=1)
@@ -151,7 +151,7 @@ def get_data(filters):
             if not wt:
                 wt = frappe.db.get_value("Item", itm.item_code, "weight_per_unit") or 1.0
                 
-            itm_uom = itm.source_uom or frappe.db.get_value("Item", itm.item_code, "stock_uom") or ""
+            itm_uom = frappe.db.get_value("Item", itm.item_code, "stock_uom") or ""
             
             req_p = get_pcs(req_k, wt, itm_uom)
             rec_p = get_pcs(rec_k, wt, itm_uom)
