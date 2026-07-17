@@ -101,9 +101,26 @@ def get_data(filters):
             stock_uom = item_doc.stock_uom and item_doc.stock_uom.strip().lower()
             conversion_cache[item_code] = {"stock_uom": stock_uom}
         cache = conversion_cache[item_code]
+        
+        # 1. Convert to FG Stock UOM
         if cache["stock_uom"] in ['kg', 'kgs']:
-            return get_yield_pcs(so_item_code, item_code, qty)
-        return qty 
+            fg_qty = get_yield_pcs(so_item_code, item_code, qty)
+        else:
+            fg_qty = qty
+            
+        # 2. Convert FG Stock UOM to FG Pcs
+        if so_item_code not in conversion_cache:
+            so_item_doc = frappe.get_cached_doc("Item", so_item_code)
+            so_stock_uom = so_item_doc.stock_uom and so_item_doc.stock_uom.strip().lower()
+            conversion_cache[so_item_code] = {"stock_uom": so_stock_uom}
+            
+        so_cache = conversion_cache[so_item_code]
+        if so_cache["stock_uom"] in ['kg', 'kgs']:
+            kgs_factor = get_kgs_factor(so_item_code)
+            if kgs_factor > 0:
+                return fg_qty / kgs_factor
+                
+        return fg_qty 
 
     conversion_weight_cache = {}
     
@@ -112,13 +129,19 @@ def get_data(filters):
             item_doc = frappe.get_cached_doc("Item", item_code)
             stock_uom = item_doc.stock_uom and item_doc.stock_uom.strip().lower()
             
-            if stock_uom in ['kg', 'kgs']:
-                bom_no = item_doc.default_bom
-                if bom_no:
-                    bom_qty = frappe.db.get_value("BOM", bom_no, "quantity")
-                    if bom_qty:
-                        conversion_weight_cache[item_code] = bom_qty
-                        return bom_qty
+            bom_no = item_doc.default_bom
+            if bom_no:
+                bom_qty = frappe.db.get_value("BOM", bom_no, "quantity") or 1.0
+                if stock_uom in ['kg', 'kgs']:
+                    conversion_weight_cache[item_code] = bom_qty
+                    return bom_qty
+                else:
+                    bom_items = frappe.db.sql("SELECT qty FROM `tabBOM Item` WHERE parent = %s", bom_no, as_dict=1)
+                    total_weight = sum([bi.qty for bi in bom_items])
+                    if total_weight > 0:
+                        wt = total_weight / bom_qty
+                        conversion_weight_cache[item_code] = wt
+                        return wt
                         
             weight = getattr(item_doc, "weight_per_unit", 0.0)
             if weight:
