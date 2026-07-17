@@ -12,12 +12,12 @@
     "modified":  "2026-07-16 12:00:00.000000",
     "modified_by":  "Administrator",
     "module":  "MRP Shortage Report",
-    "name":  "Job Card Tracking Sheet",
+    "name":  "Work Order Tracking Sheet",
     "owner":  "Administrator",
     "prepared_report":  0,
     "query":  "",
-    "ref_doctype":  "Job Card",
-    "report_name":  "Job Card Tracking Sheet",
+    "ref_doctype":  "Work Order",
+    "report_name":  "Work Order Tracking Sheet",
     "report_type":  "Script Report",
     "roles":  [
         {

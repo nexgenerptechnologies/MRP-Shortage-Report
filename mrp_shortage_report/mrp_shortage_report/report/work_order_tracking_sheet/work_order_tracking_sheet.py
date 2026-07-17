@@ -34,35 +34,40 @@ def get_data(filters):
     conditions = []
     
     if filters.get("from_date"):
-        conditions.append(f"jc.posting_date >= '{filters.get('from_date')}'")
+        conditions.append(f"wo.creation >= '{filters.get('from_date')}'")
     if filters.get("to_date"):
-        conditions.append(f"jc.posting_date <= '{filters.get('to_date')}'")
+        conditions.append(f"wo.creation <= '{filters.get('to_date')}'")
     if filters.get("company"):
-        conditions.append(f"jc.company = '{filters.get('company')}'")
+        conditions.append(f"wo.company = '{filters.get('company')}'")
     if filters.get("work_order"):
         work_orders = filters.get("work_order")
         if isinstance(work_orders, list):
-            wo_list = ", ".join(f"'{wo}'" for wo in work_orders)
-            conditions.append(f"jc.work_order IN ({wo_list})")
+            wo_list = ", ".join(f"'{w}'" for w in work_orders)
+            conditions.append(f"wo.name IN ({wo_list})")
         else:
-            conditions.append(f"jc.work_order IN ('{work_orders}')")
+            conditions.append(f"wo.name IN ('{work_orders}')")
     if filters.get("item_code"):
-        conditions.append(f"jc.production_item = '{filters.get('item_code')}'")
-    if filters.get("operation"):
-        conditions.append(f"jc.operation = '{filters.get('operation')}'")
+        conditions.append(f"wo.production_item = '{filters.get('item_code')}'")
     if filters.get("status"):
-        conditions.append(f"jc.status = '{filters.get('status')}'")
+        conditions.append(f"wo.status = '{filters.get('status')}'")
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
     query = f"""
         SELECT
-            jc.posting_date as date,
-            jc.work_order,
-            jc.status,
-            jc.production_item as item_code,
-            jc.item_name,
-            jc.operation,
+            DATE(wo.creation) as date,
+            wo.name as work_order,
+            wo.status,
+            wo.production_item as item_code,
+            wo.item_name,
+            '' as operation,
+            '' as operator_name,
+            '' as workstation,
+            '' as operation_time_mints,
+            '' as shift,
+            '' as production_qty_pcs,
+            '' as production_qty_kgs,
+            '' as scrap_kgs,
             IFNULL(woi.total_required, 0) as total_required,
             IFNULL(woi.total_received, 0) as total_received,
             IFNULL(woi.total_required, 0) - IFNULL(woi.total_received, 0) as pending_to_receive,
@@ -72,9 +77,7 @@ def get_data(filters):
             IFNULL(last_op.completed_qty, wo.produced_qty) as _jc_completed_raw,
             wo.qty as _wo_qty_raw
         FROM
-            `tabJob Card` jc
-        INNER JOIN
-            `tabWork Order` wo ON jc.work_order = wo.name
+            `tabWork Order` wo
         LEFT JOIN
             (
                 SELECT 
@@ -95,9 +98,9 @@ def get_data(filters):
             ) last_op ON last_op.parent = wo.name
         WHERE
             {where_clause}
-            AND jc.docstatus < 2
+            AND wo.docstatus < 2
         ORDER BY
-            jc.posting_date DESC, jc.work_order ASC
+            wo.creation DESC, wo.name ASC
     """
 
     data = frappe.db.sql(query, as_dict=1)

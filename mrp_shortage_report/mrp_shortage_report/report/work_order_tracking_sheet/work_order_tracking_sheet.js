@@ -1,4 +1,4 @@
-frappe.query_reports["Job Card Tracking Sheet"] = {
+frappe.query_reports["Work Order Tracking Sheet"] = {
     "filters": [
         {
             "fieldname": "company",
@@ -34,12 +34,6 @@ frappe.query_reports["Job Card Tracking Sheet"] = {
             "label": __("Item Code"),
             "fieldtype": "Link",
             "options": "Item"
-        },
-        {
-            "fieldname": "operation",
-            "label": __("Operation"),
-            "fieldtype": "Link",
-            "options": "Operation"
         },
         {
             "fieldname": "status",
