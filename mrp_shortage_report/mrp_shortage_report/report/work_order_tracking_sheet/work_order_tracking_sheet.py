@@ -206,10 +206,28 @@ def get_data(filters):
         jc_comp_raw = row.get("_jc_completed_raw", 0.0)
         wo_qty_raw = row.get("_wo_qty_raw", 0.0)
         
-        # Convert FG quantities
-        wo_qty_kgs, wo_qty_pcs = get_qty_in_kgs_and_pcs(fg_item, wo_qty_raw)
-        jc_comp_kgs, jc_comp_pcs = get_qty_in_kgs_and_pcs(fg_item, jc_comp_raw)
+        # Determine Finished Good weight from the linked BOM!
+        # tot_req_kgs is the total weight of raw materials required to make wo_qty_raw
+        kg_per_fg_pc = (tot_req_kgs / wo_qty_raw) if wo_qty_raw > 0 else 0.0
         
+        fg_uom = frappe.db.get_value("Item", fg_item, "stock_uom") or ""
+        fg_uom = fg_uom.strip().lower()
+        
+        if fg_uom in ['kg', 'kgs']:
+            # The Work Order itself is in Kgs
+            wo_qty_kgs = wo_qty_raw
+            wo_qty_pcs = wo_qty_raw / kg_per_fg_pc if kg_per_fg_pc > 0 else wo_qty_raw
+            
+            jc_comp_kgs = jc_comp_raw
+            jc_comp_pcs = jc_comp_raw / kg_per_fg_pc if kg_per_fg_pc > 0 else jc_comp_raw
+        else:
+            # The Work Order is in Pcs (default)
+            wo_qty_pcs = wo_qty_raw
+            wo_qty_kgs = wo_qty_raw * kg_per_fg_pc
+            
+            jc_comp_pcs = jc_comp_raw
+            jc_comp_kgs = jc_comp_raw * kg_per_fg_pc
+            
         max_fg_kgs = 0.0
         max_fg_pcs = 0.0
         
