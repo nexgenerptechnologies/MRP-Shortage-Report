@@ -25,39 +25,41 @@ def get_columns():
         {"fieldname": "order_qty", "label": _("Order Qty"), "fieldtype": "Float", "width": 100},
         {"fieldname": "stock_qty", "label": _("Stock Qty"), "fieldtype": "Float", "width": 100},
         
-        {"fieldname": "production_plan", "label": _("Production Plan Number"), "fieldtype": "Data", "width": 160},
-        {"fieldname": "pp_date", "label": _("Production Plan Date"), "fieldtype": "Data", "width": 110},
-        {"fieldname": "pp_status", "label": _("Production Plan Status"), "fieldtype": "Data", "width": 140},
-        {"fieldname": "pp_qty", "label": _("Total Production Plan Quantity in Pcs"), "fieldtype": "Float", "width": 160},
-        {"fieldname": "pp_bal", "label": _("Total Balance for production plan in Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "production_plan", "label": _("PP Number"), "fieldtype": "Data", "width": 160},
+        {"fieldname": "pp_date", "label": _("PP Date"), "fieldtype": "Data", "width": 110},
+        {"fieldname": "pp_status", "label": _("PP Status"), "fieldtype": "Data", "width": 140},
+        {"fieldname": "pp_qty", "label": _("PP Qty Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "pp_bal", "label": _("PP Pending Pcs"), "fieldtype": "Float", "width": 160},
         
-        {"fieldname": "wo_qty", "label": _("Total Work order Quantity Against Production Plan Quantity in Pcs"), "fieldtype": "Float", "width": 190},
+        {"fieldname": "wo_qty", "label": _("Work Order Qty Pcs"), "fieldtype": "Float", "width": 190},
+        {"fieldname": "wo_qty_kgs", "label": _("Work Order Qty Kgs"), "fieldtype": "Float", "width": 160},
         
-        # New Column for Sub-Contracting
-        {"fieldname": "subcontract_kgs", "label": _("Qty at Sub Contractor (kgs)"), "fieldtype": "Float", "width": 180},
+        {"fieldname": "subcontract_kgs", "label": _("SubCont Qty kgs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "subcontract_pcs", "label": _("SubCont Qty Pcs"), "fieldtype": "Float", "width": 160},
         
-        # Cutting/Bending
-        {"fieldname": "cut_comp", "label": _("Total Cutting/Bending Quantity completed against work order (in Pcs)"), "fieldtype": "Float", "width": 180},
-        {"fieldname": "cut_bal", "label": _("Total Cutting/Bending balance against work order (in Pcs)"), "fieldtype": "Float", "width": 180},
+        {"fieldname": "cut_comp", "label": _("Cut/Bend Qty Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "cut_comp_kgs", "label": _("Cut/Bend Qty Kg"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "cut_bal", "label": _("Cut/Bend Pending Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "cut_bal_kgs", "label": _("Cut/Bend Pending Kg"), "fieldtype": "Float", "width": 160},
         
-        # Vibro Cleaning
-        {"fieldname": "vibro_avail", "label": _("Total Vibro Cleaning Quantity available for vibro cleaning in pcs"), "fieldtype": "Float", "width": 180},
-        {"fieldname": "vibro_comp", "label": _("Total Vibro Cleaning Completed Against work order completed (in pcs)"), "fieldtype": "Float", "width": 180},
-        {"fieldname": "vibro_bal", "label": _("Total Vibro Cleaning balance against work order completed (in pcs)"), "fieldtype": "Float", "width": 180},
+        {"fieldname": "vibro_avail", "label": _("Vibro Pending Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "vibro_avail_kgs", "label": _("Vibro Pending Kg"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "vibro_comp", "label": _("Vibro Cleaned Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "vibro_comp_kgs", "label": _("Vibro Cleaned Kg"), "fieldtype": "Float", "width": 160},
         
-        # Plating
-        {"fieldname": "plate_avail", "label": _("Total ready Quantity available for plating in pcs"), "fieldtype": "Float", "width": 180},
-        {"fieldname": "plate_comp", "label": _("Total Plating Completed against work order completed (in Pcs)"), "fieldtype": "Float", "width": 180},
-        {"fieldname": "plate_bal", "label": _("Total Plating balance against work order completed (in Pcs)"), "fieldtype": "Float", "width": 180},
+        {"fieldname": "plate_avail", "label": _("Plating Pending Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "plate_avail_kgs", "label": _("Plating Pending Kg"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "plate_comp", "label": _("Plated Qty Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "plate_comp_kgs", "label": _("Plated Qty kg"), "fieldtype": "Float", "width": 160},
         
-        # Packaging
-        {"fieldname": "pack_comp", "label": _("Packaging Completed against work order completed (in Pcs)"), "fieldtype": "Float", "width": 180},
-        {"fieldname": "pack_bal", "label": _("Packaging balance against work order completed (in Pcs)"), "fieldtype": "Float", "width": 180},
+        {"fieldname": "pack_comp", "label": _("Packed Qty Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "pack_comp_kgs", "label": _("Packed Qty Kg"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "pack_bal", "label": _("Pack Pending Pcs"), "fieldtype": "Float", "width": 160},
+        {"fieldname": "pack_bal_kgs", "label": _("Pack Pending Kgs"), "fieldtype": "Float", "width": 160},
         
-        # Fulfillment
-        {"fieldname": "fg_avail", "label": _("FG Available Quantity (in Pcs)"), "fieldtype": "Float", "width": 150},
-        {"fieldname": "dispatch_qty", "label": _("Dispatched Quantity (in Pcs)"), "fieldtype": "Float", "width": 150},
-        {"fieldname": "dispatch_bal", "label": _("Pending for Dispatch (in Pcs)"), "fieldtype": "Float", "width": 150},
+        {"fieldname": "fg_avail", "label": _("FG Stock Bal Pcs"), "fieldtype": "Float", "width": 150},
+        {"fieldname": "dispatch_qty", "label": _("Disp Qty Pcs"), "fieldtype": "Float", "width": 150},
+        {"fieldname": "dispatch_bal", "label": _("Disp Pending Pcs"), "fieldtype": "Float", "width": 150}
     ]
 
 def get_data(filters):
@@ -102,6 +104,36 @@ def get_data(filters):
         if cache["stock_uom"] in ['kg', 'kgs']:
             return get_yield_pcs(so_item_code, item_code, qty)
         return qty 
+
+    conversion_weight_cache = {}
+    
+    def get_kgs_factor(item_code):
+        if item_code not in conversion_weight_cache:
+            item_doc = frappe.get_cached_doc("Item", item_code)
+            stock_uom = item_doc.stock_uom and item_doc.stock_uom.strip().lower()
+            
+            if stock_uom in ['kg', 'kgs']:
+                bom_no = item_doc.default_bom
+                if bom_no:
+                    bom_qty = frappe.db.get_value("BOM", bom_no, "quantity")
+                    if bom_qty:
+                        conversion_weight_cache[item_code] = bom_qty
+                        return bom_qty
+                        
+            weight = getattr(item_doc, "weight_per_unit", 0.0)
+            if weight:
+                conversion_weight_cache[item_code] = weight
+                return weight
+                
+            for uom in item_doc.uoms:
+                if uom.uom.strip().lower() in ['kg', 'kgs']:
+                    val = 1.0 / (uom.conversion_factor or 1.0)
+                    conversion_weight_cache[item_code] = val
+                    return val
+                    
+            conversion_weight_cache[item_code] = 1.0
+            
+        return conversion_weight_cache[item_code]
 
     # -------------------------------------------------------------
     # BUCKET 1: Sales Orders
@@ -443,6 +475,27 @@ def get_data(filters):
             elif is_root:
                 row["fg_avail"] = state["pack_comp"]
                 
+            kgs_factor = get_kgs_factor(root_item_code)
+            
+            row["wo_qty_kgs"] = row.get("wo_qty", 0.0) * kgs_factor
+            
+            # Since subcontract_kgs is raw component kgs, subcontract_pcs is the equivalent FG Pcs
+            # which is better calculated using get_qty_pcs. But we already have the raw Kgs.
+            # To get FG Pcs from raw Component Kgs, we should use get_qty_pcs directly.
+            row["subcontract_pcs"] = get_qty_pcs(root_item_code, branch_item, row.get("subcontract_kgs", 0.0))
+            
+            row["cut_comp_kgs"] = row.get("cut_comp", 0.0) * kgs_factor
+            row["cut_bal_kgs"] = row.get("cut_bal", 0.0) * kgs_factor
+            
+            row["vibro_avail_kgs"] = row.get("vibro_avail", 0.0) * kgs_factor
+            row["vibro_comp_kgs"] = row.get("vibro_comp", 0.0) * kgs_factor
+            
+            row["plate_avail_kgs"] = row.get("plate_avail", 0.0) * kgs_factor
+            row["plate_comp_kgs"] = row.get("plate_comp", 0.0) * kgs_factor
+            
+            row["pack_comp_kgs"] = row.get("pack_comp", 0.0) * kgs_factor
+            row["pack_bal_kgs"] = row.get("pack_bal", 0.0) * kgs_factor
+                
             data.append(row)
                         
         process_branch(root_item_code, fg_bom, "", 0, root_req_qty, is_root=True)
@@ -472,11 +525,13 @@ def get_data(filters):
             "pp_qty": 0.0,
             "pp_bal": 0.0,
             "wo_qty": 0.0,
+            "wo_qty_kgs": 0.0,
             "subcontract_kgs": 0.0,
-            "cut_comp": 0.0, "cut_bal": 0.0,
-            "vibro_avail": 0.0, "vibro_comp": 0.0, "vibro_bal": 0.0,
-            "plate_avail": 0.0, "plate_comp": 0.0, "plate_bal": 0.0,
-            "pack_comp": 0.0, "pack_bal": 0.0,
+            "subcontract_pcs": 0.0,
+            "cut_comp": 0.0, "cut_comp_kgs": 0.0, "cut_bal": 0.0, "cut_bal_kgs": 0.0,
+            "vibro_avail": 0.0, "vibro_avail_kgs": 0.0, "vibro_comp": 0.0, "vibro_comp_kgs": 0.0, 
+            "plate_avail": 0.0, "plate_avail_kgs": 0.0, "plate_comp": 0.0, "plate_comp_kgs": 0.0,
+            "pack_comp": 0.0, "pack_comp_kgs": 0.0, "pack_bal": 0.0, "pack_bal_kgs": 0.0,
             "fg_avail": 0.0, "dispatch_qty": 0.0, "dispatch_bal": 0.0
         }
         for d in data:
