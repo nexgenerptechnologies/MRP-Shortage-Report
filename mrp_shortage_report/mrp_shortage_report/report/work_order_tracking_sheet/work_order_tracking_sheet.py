@@ -54,7 +54,12 @@ def get_data(filters):
         else:
             conditions.append(f"wo.name IN ('{work_orders}')")
     if filters.get("item_code"):
-        conditions.append(f"wo.production_item = '{filters.get('item_code')}'")
+        items = filters.get("item_code")
+        if isinstance(items, list):
+            item_list = ", ".join(f"'{i}'" for i in items)
+            conditions.append(f"wo.production_item IN ({item_list})")
+        else:
+            conditions.append(f"wo.production_item = '{items}'")
     if filters.get("status"):
         conditions.append(f"wo.status = '{filters.get('status')}'")
 
@@ -67,7 +72,7 @@ def get_data(filters):
             wo.status,
             wo.production_item as item_code,
             wo.item_name,
-            '' as operation,
+            IFNULL(all_ops.all_operations, '') as operation,
             '' as operator_name,
             '' as workstation,
             '' as operation_time_mints,
@@ -88,6 +93,12 @@ def get_data(filters):
                     SELECT MAX(idx) FROM `tabWork Order Operation` op2 WHERE op2.parent = op1.parent
                 )
             ) last_op ON last_op.parent = wo.name
+        LEFT JOIN
+            (
+                SELECT parent, GROUP_CONCAT(operation ORDER BY idx SEPARATOR ', ') as all_operations
+                FROM `tabWork Order Operation`
+                GROUP BY parent
+            ) all_ops ON all_ops.parent = wo.name
         WHERE
             {where_clause}
             AND wo.docstatus < 2
