@@ -195,4 +195,21 @@ def get_conditions(filters):
         conditions += " AND workstation = %(workstation)s"
     if filters.get("status"):
         conditions += " AND status = %(status)s"
+        
+    if filters.get("item_code"):
+        items = filters.get("item_code")
+        if isinstance(items, list):
+            item_list = ", ".join(f"'{i}'" for i in items)
+            conditions += f" AND production_item IN ({item_list})"
+        else:
+            conditions += f" AND production_item = '{items}'"
+            
+    if filters.get("operation"):
+        ops = filters.get("operation")
+        if isinstance(ops, list):
+            op_list = ", ".join(f"'{o}'" for o in ops)
+            conditions += f" AND operation IN ({op_list})"
+        else:
+            conditions += f" AND operation = '{ops}'"
+            
     return conditions

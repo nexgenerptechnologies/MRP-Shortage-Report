@@ -35,6 +35,24 @@ frappe.query_reports["Daily Production Report"] = {
             "options": "Employee"
         },
         {
+            "fieldname": "item_code",
+            "label": __("Item Code"),
+            "fieldtype": "MultiSelectList",
+            "options": "Item",
+            "get_data": function(txt) {
+                return frappe.db.get_link_options('Item', txt);
+            }
+        },
+        {
+            "fieldname": "operation",
+            "label": __("Operation"),
+            "fieldtype": "MultiSelectList",
+            "options": "Operation",
+            "get_data": function(txt) {
+                return frappe.db.get_link_options('Operation', txt);
+            }
+        },
+        {
             "fieldname": "status",
             "label": __("Status"),
             "fieldtype": "Select",
