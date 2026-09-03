@@ -56,7 +56,7 @@ frappe.query_reports["Daily Production Report"] = {
             "fieldname": "status",
             "label": __("Status"),
             "fieldtype": "Select",
-            "options": "\nOpen\nWork In Progress\nCompleted\nCancelled\nOn Hold\nMaterial Transferred",
+            "options": "\nDraft\nSubmitted\nOpen\nWork In Progress\nCompleted\nMaterial Transferred\nOn Hold\nCancelled",
             "default": ""
         }
     ],
