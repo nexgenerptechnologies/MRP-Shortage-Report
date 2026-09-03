@@ -111,35 +111,21 @@ def get_data(filters):
             else:
                 bom_scrap_ratios[b.name] = 0.0
                 
-    # Pre-fetch Stock Entry (Manufacture) Production quantities linked to specific Job Cards
+    # Pre-fetch Stock Entry (Manufacture) Production quantities linked to Work Order & Date
+    work_orders = set([jc.work_order for jc in job_cards if jc.work_order])
     se_production_map = {}
-    job_cards_list = [jc.job_card for jc in job_cards if jc.job_card]
     
-    if job_cards_list:
-        # Check if job_card field exists on Stock Entry header
-        if frappe.db.has_column("Stock Entry", "job_card"):
-            se_data = frappe.db.sql("""
-                SELECT job_card, sum(fg_completed_qty) as total_produced
-                FROM `tabStock Entry`
-                WHERE job_card IN %s AND purpose = 'Manufacture' AND docstatus = 1
-                GROUP BY job_card
-            """, (tuple(job_cards_list),), as_dict=1)
-            for se in se_data:
-                if se.job_card:
-                    se_production_map[se.job_card] = se.total_produced
-                    
-        # Check if it exists in the details table (alternative linkage)
-        if not se_production_map and frappe.db.has_column("Stock Entry Detail", "job_card"):
-            se_data = frappe.db.sql("""
-                SELECT child.job_card, sum(parent.fg_completed_qty) as total_produced
-                FROM `tabStock Entry Detail` child
-                JOIN `tabStock Entry` parent ON child.parent = parent.name
-                WHERE child.job_card IN %s AND parent.purpose = 'Manufacture' AND parent.docstatus = 1
-                GROUP BY child.job_card
-            """, (tuple(job_cards_list),), as_dict=1)
-            for se in se_data:
-                if se.job_card:
-                    se_production_map[se.job_card] = se.total_produced
+    if work_orders:
+        se_data = frappe.db.sql("""
+            SELECT work_order, posting_date, sum(fg_completed_qty) as total_produced
+            FROM `tabStock Entry`
+            WHERE work_order IN %s AND purpose = 'Manufacture' AND docstatus = 1
+            GROUP BY work_order, posting_date
+        """, (tuple(work_orders),), as_dict=1)
+        
+        for se in se_data:
+            if se.work_order and se.posting_date:
+                se_production_map[(se.work_order, se.posting_date)] = se.total_produced
                 
     # Filter by Employee (Operator) if specified in filters
     filter_employee = filters.get("employee")
@@ -211,7 +197,7 @@ def get_data(filters):
             "operation": jc.operation,
             "operation_time": jc.operation_time,
             "operator_name": operator_name,
-            "stock_entry_qty": se_production_map.get(jc.job_card, 0.0),
+            "stock_entry_qty": se_production_map.get((jc.work_order, jc.posting_date), 0.0),
             "production_qty_pcs": production_qty_pcs,
             "production_qty_kgs": production_qty_kgs,
             "scrap_as_per_bom": scrap_as_per_bom,
