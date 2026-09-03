@@ -154,9 +154,16 @@ def get_data(filters):
         ratio = bom_scrap_ratios.get(jc.bom_no, 0.0)
         scrap_as_per_bom = raw_qty * ratio
         
-        # Actual Scrap from Job Card Scrap Items
+        # Actual Scrap from Job Card Scrap Items (Secondary Items tab)
         actual_scrap = 0.0
-        scrap_items = frappe.db.sql("SELECT sum(stock_qty) FROM `tabJob Card Scrap Item` WHERE parent = %s", (jc.job_card,))
+        
+        has_type_col = frappe.db.has_column("Job Card Scrap Item", "type")
+        if has_type_col:
+            scrap_query = "SELECT sum(stock_qty) FROM `tabJob Card Scrap Item` WHERE parent = %s AND type = 'Scrap'"
+        else:
+            scrap_query = "SELECT sum(stock_qty) FROM `tabJob Card Scrap Item` WHERE parent = %s"
+            
+        scrap_items = frappe.db.sql(scrap_query, (jc.job_card,))
         if scrap_items and scrap_items[0][0]:
             actual_scrap = scrap_items[0][0]
             
