@@ -18,6 +18,7 @@ def get_columns():
         {"fieldname": "operation", "label": _("Operation"), "fieldtype": "Link", "options": "Operation", "width": 120},
         {"fieldname": "operation_time", "label": _("Operation Time (Mints)"), "fieldtype": "Float", "width": 160},
         {"fieldname": "operator_name", "label": _("Operator Name"), "fieldtype": "Data", "width": 140},
+        {"fieldname": "stock_entry_qty", "label": _("Stock Entry (Manufacture)"), "fieldtype": "Float", "width": 180},
         {"fieldname": "production_qty_pcs", "label": _("Production Qty (Pcs)"), "fieldtype": "Float", "width": 160},
         {"fieldname": "production_qty_kgs", "label": _("Production Qty (Kgs)"), "fieldtype": "Float", "width": 160},
         {"fieldname": "scrap_as_per_bom", "label": _("Scrap as per BOM"), "fieldtype": "Float", "width": 140},
@@ -110,6 +111,19 @@ def get_data(filters):
             else:
                 bom_scrap_ratios[b.name] = 0.0
                 
+    # Pre-fetch Stock Entry (Manufacture) Production quantities for Work Orders
+    work_orders = set([jc.work_order for jc in job_cards if jc.work_order])
+    se_production_map = {}
+    if work_orders:
+        se_data = frappe.db.sql("""
+            SELECT work_order, sum(fg_completed_qty) as total_produced
+            FROM `tabStock Entry`
+            WHERE work_order IN %s AND purpose = 'Manufacture' AND docstatus = 1
+            GROUP BY work_order
+        """, (tuple(work_orders),), as_dict=1)
+        for se in se_data:
+            se_production_map[se.work_order] = se.total_produced
+                
     # Filter by Employee (Operator) if specified in filters
     filter_employee = filters.get("employee")
 
@@ -180,6 +194,7 @@ def get_data(filters):
             "operation": jc.operation,
             "operation_time": jc.operation_time,
             "operator_name": operator_name,
+            "stock_entry_qty": se_production_map.get(jc.work_order, 0.0),
             "production_qty_pcs": production_qty_pcs,
             "production_qty_kgs": production_qty_kgs,
             "scrap_as_per_bom": scrap_as_per_bom,
