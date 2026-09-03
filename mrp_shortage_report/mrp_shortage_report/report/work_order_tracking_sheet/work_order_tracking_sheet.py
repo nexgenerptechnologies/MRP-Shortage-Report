@@ -62,6 +62,13 @@ def get_data(filters):
             conditions.append(f"wo.production_item = '{items}'")
     if filters.get("status"):
         conditions.append(f"wo.status = '{filters.get('status')}'")
+    if filters.get("operation"):
+        ops = filters.get("operation")
+        if isinstance(ops, list):
+            op_list = ", ".join(f"'{o}'" for o in ops)
+            conditions.append(f"EXISTS (SELECT 1 FROM `tabWork Order Operation` WHERE parent = wo.name AND operation IN ({op_list}))")
+        else:
+            conditions.append(f"EXISTS (SELECT 1 FROM `tabWork Order Operation` WHERE parent = wo.name AND operation = '{ops}')")
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 

@@ -39,10 +39,19 @@ frappe.query_reports["Work Order Tracking Sheet"] = {
             }
         },
         {
+            "fieldname": "operation",
+            "label": __("Operation"),
+            "fieldtype": "MultiSelectList",
+            "options": "Operation",
+            "get_data": function(txt) {
+                return frappe.db.get_link_options('Operation', txt);
+            }
+        },
+        {
             "fieldname": "status",
             "label": __("Status"),
             "fieldtype": "Select",
-            "options": "\nOpen\nWork In Progress\nCompleted\nMaterial Transferred\nOn Hold\nCancelled"
+            "options": "\nDraft\nSubmitted\nNot Started\nIn Process\nStock Reserved\nStock Partially Reserved\nCompleted\nStopped\nClosed\nCancelled"
         }
     ]
 };
