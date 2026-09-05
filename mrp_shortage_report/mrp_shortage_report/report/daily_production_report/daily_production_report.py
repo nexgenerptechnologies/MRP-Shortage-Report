@@ -23,7 +23,9 @@ def get_columns():
         {"fieldname": "production_qty_kgs", "label": _("Production Qty (Kgs)"), "fieldtype": "Float", "width": 160},
         {"fieldname": "scrap_as_per_bom", "label": _("Scrap as per BOM"), "fieldtype": "Float", "width": 140},
         {"fieldname": "actual_scrap", "label": _("Actual Scrap"), "fieldtype": "Float", "width": 120},
-        {"fieldname": "difference", "label": _("Difference"), "fieldtype": "Float", "width": 100}
+        {"fieldname": "difference", "label": _("Difference"), "fieldtype": "Float", "width": 100},
+        {"fieldname": "bom_no", "label": _("BOM No"), "fieldtype": "Data", "width": 160},
+        {"fieldname": "scrap_ratio", "label": _("Scrap Ratio"), "fieldtype": "Float", "width": 100}
     ]
 
 def get_data(filters):
@@ -210,7 +212,9 @@ def get_data(filters):
             "production_qty_kgs": production_qty_kgs,
             "scrap_as_per_bom": scrap_as_per_bom,
             "actual_scrap": actual_scrap,
-            "difference": difference
+            "difference": difference,
+            "bom_no": jc.bom_no,
+            "scrap_ratio": ratio
         }
         data.append(row)
         
