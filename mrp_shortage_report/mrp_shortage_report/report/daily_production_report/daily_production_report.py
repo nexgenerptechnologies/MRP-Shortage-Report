@@ -2,6 +2,30 @@ import frappe
 from frappe import _
 
 def execute(filters=None):
+    try:
+        msg = "<b>Please screenshot this entire popup and send it to me!</b><br><br>"
+        # Inspect Job Card
+        jc_doc = frappe.get_doc("Job Card", "PO-JOB02528").as_dict()
+        msg += "<b>JOB CARD: PO-JOB02528</b><br>"
+        for key, value in jc_doc.items():
+            if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                msg += f"<b>Table:</b> {key}<br>"
+                msg += f"<b>Keys:</b> {', '.join(value[0].keys())}<br>"
+                msg += f"<b>Row 1:</b> {str(value[0])}<br><br>"
+                
+        # Inspect BOM
+        bom_doc = frappe.get_doc("BOM", "BOM-WIP00022-002").as_dict()
+        msg += "<b>BOM: BOM-WIP00022-002</b><br>"
+        for key, value in bom_doc.items():
+            if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+                msg += f"<b>Table:</b> {key}<br>"
+                msg += f"<b>Keys:</b> {', '.join(value[0].keys())}<br>"
+                msg += f"<b>Row 1:</b> {str(value[0])}<br><br>"
+                
+        frappe.msgprint(msg, title="System Diagnostics")
+    except Exception as e:
+        pass
+
     columns = get_columns()
     data = get_data(filters)
     return columns, data
