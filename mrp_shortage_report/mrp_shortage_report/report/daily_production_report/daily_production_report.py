@@ -100,83 +100,88 @@ def get_data(filters):
         
     # Pre-fetch BOM Scrap logic
     bom_scrap_ratios = {}
-    boms = set([jc.bom_no for jc in job_cards if jc.bom_no])
+    boms = tuple(set([jc.bom_no for jc in job_cards if jc.bom_no]))
     if boms:
         bom_details = frappe.db.sql("""
             SELECT name, quantity FROM `tabBOM` WHERE name IN %s
-        """, (tuple(boms),), as_dict=1)
+        """, (boms,), as_dict=1)
         
         scrap_map = {}
-        possible_scrap_tables = ['BOM Scrap Item', 'BOM Secondary Item']
-        
-        for table_name in possible_scrap_tables:
-            if frappe.db.exists("DocType", table_name):
-                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else "qty"
-                
-                type_col = None
-                if frappe.db.has_column(table_name, "type"): type_col = "type"
-                elif frappe.db.has_column(table_name, "secondary_item_type"): type_col = "secondary_item_type"
-                elif frappe.db.has_column(table_name, "item_type"): type_col = "item_type"
-                
+        for table in ['BOM Scrap Item', 'BOM Secondary Item']:
+            if frappe.db.exists("DocType", table):
                 try:
-                    if type_col:
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND {type_col} LIKE '%%crap%%' GROUP BY parent"
+                    has_stock = frappe.db.has_column(table, "stock_qty")
+                    qty = "stock_qty" if has_stock else "qty"
+                    
+                    has_sec_type = frappe.db.has_column(table, "secondary_item_type")
+                    has_type = frappe.db.has_column(table, "type")
+                    
+                    if has_sec_type:
+                        q = f"SELECT parent, sum({qty}) as ts FROM `tab{table}` WHERE parent IN %s AND secondary_item_type = 'Scrap' GROUP BY parent"
+                    elif has_type:
+                        q = f"SELECT parent, sum({qty}) as ts FROM `tab{table}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
                     else:
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
-                        
-                    table_scrap = frappe.db.sql(query, (tuple(boms),), as_dict=1)
-                    for s in table_scrap:
-                        scrap_map[s.parent] = scrap_map.get(s.parent, 0.0) + (s.total_scrap or 0.0)
-                except Exception:
-                    pass
+                        q = f"SELECT parent, sum({qty}) as ts FROM `tab{table}` WHERE parent IN %s GROUP BY parent"
+                    
+                    res = frappe.db.sql(q, (boms,), as_dict=1)
+                    for r in res:
+                        p = r.get('parent')
+                        if p:
+                            scrap_map[p] = scrap_map.get(p, 0.0) + float(r.get('ts') or 0.0)
+                except Exception as e:
+                    frappe.log_error(title="Report BOM Scrap Error", message=str(e))
         
         for b in bom_details:
             total_scrap = scrap_map.get(b.name, 0.0)
             if b.quantity:
-                bom_scrap_ratios[b.name] = total_scrap / b.quantity
+                bom_scrap_ratios[b.name] = total_scrap / float(b.quantity)
             else:
                 bom_scrap_ratios[b.name] = 0.0
 
     # Pre-fetch Job Card Actual Scrap dynamically
     actual_scrap_map = {}
     time_logs_map = {}
-    jc_names = tuple(set([jc.job_card for jc in job_cards]))
+    jc_names = tuple(set([jc.job_card for jc in job_cards if jc.job_card]))
     
     if jc_names:
         # Pre-fetch Time Logs because parent field is sometimes manually zeroed out
         try:
             time_logs = frappe.db.sql("""
-                SELECT parent, sum(time_in_mins) as total_time
+                SELECT parent, sum(time_in_mins) as ts
                 FROM `tabJob Card Time Log`
                 WHERE parent IN %s
                 GROUP BY parent
             """, (jc_names,), as_dict=1)
             for t in time_logs:
-                time_logs_map[t.parent] = t.total_time or 0.0
+                p = t.get('parent')
+                if p:
+                    time_logs_map[p] = float(t.get('ts') or 0.0)
         except Exception:
             pass
 
-        possible_jc_tables = ['Job Card Scrap Item', 'Job Card Secondary Item']
-        for table_name in possible_jc_tables:
-            if frappe.db.exists("DocType", table_name):
-                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else "qty"
-                
-                type_col = None
-                if frappe.db.has_column(table_name, "type"): type_col = "type"
-                elif frappe.db.has_column(table_name, "secondary_item_type"): type_col = "secondary_item_type"
-                elif frappe.db.has_column(table_name, "item_type"): type_col = "item_type"
-                
+        for table in ['Job Card Scrap Item', 'Job Card Secondary Item']:
+            if frappe.db.exists("DocType", table):
                 try:
-                    if type_col:
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND {type_col} LIKE '%%crap%%' GROUP BY parent"
+                    has_stock = frappe.db.has_column(table, "stock_qty")
+                    qty = "stock_qty" if has_stock else "qty"
+                    
+                    has_sec_type = frappe.db.has_column(table, "secondary_item_type")
+                    has_type = frappe.db.has_column(table, "type")
+                    
+                    if has_sec_type:
+                        q = f"SELECT parent, sum({qty}) as ts FROM `tab{table}` WHERE parent IN %s AND secondary_item_type = 'Scrap' GROUP BY parent"
+                    elif has_type:
+                        q = f"SELECT parent, sum({qty}) as ts FROM `tab{table}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
                     else:
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
+                        q = f"SELECT parent, sum({qty}) as ts FROM `tab{table}` WHERE parent IN %s GROUP BY parent"
                         
-                    jc_scrap = frappe.db.sql(query, (jc_names,), as_dict=1)
-                    for s in jc_scrap:
-                        actual_scrap_map[s.parent] = actual_scrap_map.get(s.parent, 0.0) + (s.total_scrap or 0.0)
-                except Exception:
-                    pass
+                    res = frappe.db.sql(q, (jc_names,), as_dict=1)
+                    for r in res:
+                        p = r.get('parent')
+                        if p:
+                            actual_scrap_map[p] = actual_scrap_map.get(p, 0.0) + float(r.get('ts') or 0.0)
+                except Exception as e:
+                    frappe.log_error(title="Report JC Scrap Error", message=str(e))
 
                 
     # Pre-fetch Stock Entry (Manufacture) Production quantities linked to Work Order & Date
