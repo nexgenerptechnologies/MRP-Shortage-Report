@@ -8,8 +8,11 @@ def execute(filters=None):
 
 def get_columns():
     return [
+        {"fieldname": "so_date", "label": _("SO Date"), "fieldtype": "Date", "width": 110},
         {"fieldname": "sales_order", "label": _("Sales Order"), "fieldtype": "Link", "options": "Sales Order", "width": 140},
         {"fieldname": "customer", "label": _("Customer"), "fieldtype": "Link", "options": "Customer", "width": 140},
+        {"fieldname": "po_no", "label": _("Customer PO No."), "fieldtype": "Data", "width": 140},
+        {"fieldname": "po_date", "label": _("Customer PO Date"), "fieldtype": "Date", "width": 110},
         {"fieldname": "item_code", "label": _("Item Code"), "fieldtype": "Link", "options": "Item", "width": 140},
         {"fieldname": "item_name", "label": _("Item Name"), "fieldtype": "Data", "width": 180},
         {"fieldname": "description", "label": _("Description"), "fieldtype": "Data", "width": 200},
@@ -32,15 +35,19 @@ def get_data(filters):
     
     so_items_sql = """
         SELECT 
-            parent as sales_order,
-            item_code,
-            item_name,
-            description,
-            qty as so_qty,
-            rate,
-            name as so_item_name
-        FROM `tabSales Order Item`
-        WHERE parent IN (SELECT name FROM `tabSales Order` WHERE docstatus = 1)
+            i.parent as sales_order,
+            i.item_code,
+            i.item_name,
+            i.description,
+            i.qty as so_qty,
+            i.rate,
+            i.name as so_item_name,
+            so.transaction_date as so_date,
+            so.po_no,
+            so.po_date
+        FROM `tabSales Order Item` i
+        JOIN `tabSales Order` so ON i.parent = so.name
+        WHERE so.docstatus = 1
     """
     so_items = frappe.db.sql(so_items_sql, as_dict=1)
     
@@ -98,8 +105,11 @@ def get_data(filters):
         cumulative_map[key] = cum_qty
         
         row = frappe._dict({
+            "so_date": so_info.so_date,
             "sales_order": d.sales_order,
             "customer": d.customer,
+            "po_no": so_info.po_no,
+            "po_date": so_info.po_date,
             "item_code": d.item_code,
             "item_name": so_info.item_name,
             "description": so_info.description,
