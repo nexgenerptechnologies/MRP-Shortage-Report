@@ -108,14 +108,40 @@ def get_data(filters):
             SELECT name, quantity FROM `tabBOM` WHERE name IN %s
         """, (tuple(boms),), as_dict=1)
         
-        bom_scrap_details = frappe.db.sql("""
-            SELECT parent, sum(stock_qty) as total_scrap 
-            FROM `tabBOM Scrap Item` 
-            WHERE parent IN %s 
-            GROUP BY parent
-        """, (tuple(boms),), as_dict=1)
-        
-        scrap_map = {s.parent: s.total_scrap for s in bom_scrap_details}
+        # Discover all child tables of BOM that might contain Scrap
+        # Standard is 'BOM Scrap Item'. Custom might be something else.
+        possible_scrap_tables = ['BOM Scrap Item']
+        try:
+            custom_tables = frappe.db.sql("""
+                SELECT options FROM `tabDocField` 
+                WHERE parent = 'BOM' AND fieldtype = 'Table' 
+                AND options != 'BOM Operation'
+            """)
+            for t in custom_tables:
+                if t[0] not in possible_scrap_tables:
+                    possible_scrap_tables.append(t[0])
+        except Exception:
+            pass
+            
+        scrap_map = {}
+        for table_name in possible_scrap_tables:
+            if frappe.db.exists("DocType", table_name):
+                # Ensure it has stock_qty
+                if frappe.db.has_column(table_name, "stock_qty"):
+                    # If it has a type column, filter by Scrap (just in case it's a mixed table)
+                    if frappe.db.has_column(table_name, "type"):
+                        query = f"SELECT parent, sum(stock_qty) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
+                    elif frappe.db.has_column(table_name, "is_scrap_item"):
+                        query = f"SELECT parent, sum(stock_qty) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND is_scrap_item = 1 GROUP BY parent"
+                    else:
+                        query = f"SELECT parent, sum(stock_qty) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
+                        
+                    try:
+                        table_scrap = frappe.db.sql(query, (tuple(boms),), as_dict=1)
+                        for s in table_scrap:
+                            scrap_map[s.parent] = scrap_map.get(s.parent, 0.0) + (s.total_scrap or 0.0)
+                    except Exception:
+                        pass
         
         for b in bom_details:
             total_scrap = scrap_map.get(b.name, 0.0)
