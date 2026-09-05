@@ -112,11 +112,11 @@ def get_data(filters):
             custom_tables = frappe.db.sql("""
                 SELECT options FROM `tabDocField` 
                 WHERE parent = 'BOM' AND fieldtype = 'Table' 
-                AND options != 'BOM Operation'
+                AND options NOT IN ('BOM Operation', 'BOM Item')
                 UNION
                 SELECT options FROM `tabCustom Field` 
                 WHERE dt = 'BOM' AND fieldtype = 'Table' 
-                AND options != 'BOM Operation'
+                AND options NOT IN ('BOM Operation', 'BOM Item')
             """)
             for t in custom_tables:
                 if t[0] not in possible_scrap_tables:
@@ -130,18 +130,32 @@ def get_data(filters):
                 qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
                 if not qty_col and frappe.db.has_column(table_name, "qty"):
                     qty_col = "qty"
+                
+                if not qty_col:
+                    try:
+                        qty_cols = frappe.db.sql("""
+                            SELECT fieldname FROM `tabDocField` 
+                            WHERE parent = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
+                            AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
+                        """, (table_name,))
+                        qty_col = qty_cols[0][0] if qty_cols else None
+                    except Exception:
+                        pass
                     
                 if qty_col:
+                    type_col = None
+                    if frappe.db.has_column(table_name, "type"): type_col = "type"
+                    elif frappe.db.has_column(table_name, "secondary_item_type"): type_col = "secondary_item_type"
+                    elif frappe.db.has_column(table_name, "item_type"): type_col = "item_type"
+                    
                     if table_name == 'BOM Scrap Item':
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
-                    elif frappe.db.has_column(table_name, "type"):
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
-                    elif frappe.db.has_column(table_name, "secondary_item_type"):
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND secondary_item_type = 'Scrap' GROUP BY parent"
+                    elif type_col:
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND {type_col} LIKE '%%crap%%' GROUP BY parent"
                     elif frappe.db.has_column(table_name, "is_scrap_item"):
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND is_scrap_item = 1 GROUP BY parent"
                     else:
-                        continue # DO NOT blindly sum raw materials!
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
                         
                     try:
                         table_scrap = frappe.db.sql(query, (tuple(boms),), as_dict=1)
@@ -196,31 +210,35 @@ def get_data(filters):
             
         for table_name in possible_jc_tables:
             if frappe.db.exists("DocType", table_name):
-                # Dynamically find the quantity column (e.g. qty, stock_qty, scrap_qty, sec_qty)
-                try:
-                    qty_cols = frappe.db.sql("""
-                        SELECT fieldname FROM `tabDocField` 
-                        WHERE parent = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
-                        AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
-                        UNION
-                        SELECT fieldname FROM `tabCustom Field` 
-                        WHERE dt = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
-                        AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
-                    """, (table_name, table_name))
-                except Exception:
-                    qty_cols = []
+                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
+                if not qty_col and frappe.db.has_column(table_name, "qty"):
+                    qty_col = "qty"
                 
-                qty_col = qty_cols[0][0] if qty_cols else None
                 if not qty_col:
-                    qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
-                if not qty_col:
-                    qty_col = "qty" if frappe.db.has_column(table_name, "qty") else None
+                    try:
+                        qty_cols = frappe.db.sql("""
+                            SELECT fieldname FROM `tabDocField` 
+                            WHERE parent = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
+                            AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
+                            UNION
+                            SELECT fieldname FROM `tabCustom Field` 
+                            WHERE dt = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
+                            AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
+                        """, (table_name, table_name))
+                        qty_col = qty_cols[0][0] if qty_cols else None
+                    except Exception:
+                        pass
                 
                 if qty_col:
-                    if frappe.db.has_column(table_name, "type"):
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
-                    elif frappe.db.has_column(table_name, "secondary_item_type"):
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND secondary_item_type = 'Scrap' GROUP BY parent"
+                    type_col = None
+                    if frappe.db.has_column(table_name, "type"): type_col = "type"
+                    elif frappe.db.has_column(table_name, "secondary_item_type"): type_col = "secondary_item_type"
+                    elif frappe.db.has_column(table_name, "item_type"): type_col = "item_type"
+                    
+                    if table_name == 'Job Card Scrap Item':
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
+                    elif type_col:
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND {type_col} LIKE '%%crap%%' GROUP BY parent"
                     else:
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
                         
