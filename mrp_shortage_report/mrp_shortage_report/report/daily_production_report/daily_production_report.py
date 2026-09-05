@@ -107,7 +107,6 @@ def get_data(filters):
         """, (tuple(boms),), as_dict=1)
         
         # Discover all child tables of BOM that might contain Scrap
-        # Standard is 'BOM Scrap Item'. Custom might be something else.
         possible_scrap_tables = ['BOM Scrap Item']
         try:
             custom_tables = frappe.db.sql("""
@@ -124,15 +123,18 @@ def get_data(filters):
         scrap_map = {}
         for table_name in possible_scrap_tables:
             if frappe.db.exists("DocType", table_name):
-                # Ensure it has stock_qty
-                if frappe.db.has_column(table_name, "stock_qty"):
-                    # If it has a type column, filter by Scrap (just in case it's a mixed table)
+                # Ensure it has stock_qty or qty
+                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
+                if not qty_col and frappe.db.has_column(table_name, "qty"):
+                    qty_col = "qty"
+                    
+                if qty_col:
                     if frappe.db.has_column(table_name, "type"):
-                        query = f"SELECT parent, sum(stock_qty) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
                     elif frappe.db.has_column(table_name, "is_scrap_item"):
-                        query = f"SELECT parent, sum(stock_qty) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND is_scrap_item = 1 GROUP BY parent"
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND is_scrap_item = 1 GROUP BY parent"
                     else:
-                        query = f"SELECT parent, sum(stock_qty) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
                         
                     try:
                         table_scrap = frappe.db.sql(query, (tuple(boms),), as_dict=1)
@@ -147,6 +149,43 @@ def get_data(filters):
                 bom_scrap_ratios[b.name] = total_scrap / b.quantity
             else:
                 bom_scrap_ratios[b.name] = 0.0
+
+    # Pre-fetch Job Card Actual Scrap dynamically
+    actual_scrap_map = {}
+    jc_names = tuple(set([jc.job_card for jc in job_cards]))
+    if jc_names:
+        possible_jc_tables = ['Job Card Scrap Item']
+        try:
+            custom_jc_tables = frappe.db.sql("""
+                SELECT options FROM `tabDocField` 
+                WHERE parent = 'Job Card' AND fieldtype = 'Table' 
+                AND options != 'Job Card Operation' AND options != 'Job Card Time Log' AND options != 'Job Card Item'
+            """)
+            for t in custom_jc_tables:
+                if t[0] not in possible_jc_tables:
+                    possible_jc_tables.append(t[0])
+        except Exception:
+            pass
+            
+        for table_name in possible_jc_tables:
+            if frappe.db.exists("DocType", table_name):
+                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
+                if not qty_col and frappe.db.has_column(table_name, "qty"):
+                    qty_col = "qty"
+                
+                if qty_col:
+                    if frappe.db.has_column(table_name, "type"):
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
+                    else:
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
+                        
+                    try:
+                        jc_scrap = frappe.db.sql(query, (jc_names,), as_dict=1)
+                        for s in jc_scrap:
+                            actual_scrap_map[s.parent] = actual_scrap_map.get(s.parent, 0.0) + (s.total_scrap or 0.0)
+                    except Exception:
+                        pass
+
                 
     # Pre-fetch Stock Entry (Manufacture) Production quantities linked to Work Order & Date
     work_orders = set([jc.work_order for jc in job_cards if jc.work_order])
@@ -208,16 +247,10 @@ def get_data(filters):
         ratio = bom_scrap_ratios.get(jc.bom_no, 0.0)
         scrap_as_per_bom = raw_qty * ratio
         
-        # Actual Scrap from Job Card Scrap Items (Secondary Items tab)
-        actual_scrap = 0.0
+        # Actual Scrap from dynamically discovered Job Card child tables
+        actual_scrap = actual_scrap_map.get(jc.job_card, 0.0)
         
-        scrap_items = frappe.db.sql("""
-            SELECT sum(stock_qty) FROM `tabJob Card Scrap Item` WHERE parent = %s
-        """, (jc.job_card,))
-        
-        if scrap_items and scrap_items[0][0]:
-            actual_scrap = scrap_items[0][0]
-            
+        # Difference = Actual Scrap - Scrap as per BOM
         difference = actual_scrap - scrap_as_per_bom
         
         row = {
