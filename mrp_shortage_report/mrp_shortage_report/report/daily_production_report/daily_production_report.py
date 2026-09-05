@@ -43,6 +43,17 @@ def get_data(filters):
     data = []
     if not job_cards:
         return data
+        
+    # Fallback: if Job Card doesn't have bom_no, fetch it from its Work Order
+    missing_boms_wo = list(set([jc.work_order for jc in job_cards if not jc.bom_no and jc.work_order]))
+    if missing_boms_wo:
+        wo_bom_data = frappe.db.sql("""
+            SELECT name, bom_no FROM `tabWork Order` WHERE name IN %s
+        """, (tuple(missing_boms_wo),), as_dict=1)
+        wo_bom_map = {w.name: w.bom_no for w in wo_bom_data if w.bom_no}
+        for jc in job_cards:
+            if not jc.bom_no and jc.work_order:
+                jc.bom_no = wo_bom_map.get(jc.work_order)
     
     # Pre-fetch Item UOMs
     item_uoms = {}
@@ -95,12 +106,24 @@ def get_data(filters):
             SELECT name, quantity FROM `tabBOM` WHERE name IN %s
         """, (tuple(boms),), as_dict=1)
         
-        bom_scrap_details = frappe.db.sql("""
-            SELECT parent, sum(stock_qty) as total_scrap 
-            FROM `tabBOM Scrap Item` 
-            WHERE parent IN %s 
-            GROUP BY parent
-        """, (tuple(boms),), as_dict=1)
+        # Check if type column exists in tabBOM Scrap Item to be safe
+        has_bom_type_col = frappe.db.has_column("BOM Scrap Item", "type")
+        if has_bom_type_col:
+            scrap_query = """
+                SELECT parent, sum(stock_qty) as total_scrap 
+                FROM `tabBOM Scrap Item` 
+                WHERE parent IN %s AND type = 'Scrap'
+                GROUP BY parent
+            """
+        else:
+            scrap_query = """
+                SELECT parent, sum(stock_qty) as total_scrap 
+                FROM `tabBOM Scrap Item` 
+                WHERE parent IN %s 
+                GROUP BY parent
+            """
+            
+        bom_scrap_details = frappe.db.sql(scrap_query, (tuple(boms),), as_dict=1)
         
         scrap_map = {s.parent: s.total_scrap for s in bom_scrap_details}
         
