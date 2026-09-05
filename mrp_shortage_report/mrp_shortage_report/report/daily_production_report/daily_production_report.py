@@ -129,12 +129,14 @@ def get_data(filters):
                     qty_col = "qty"
                     
                 if qty_col:
-                    if frappe.db.has_column(table_name, "type"):
+                    if table_name == 'BOM Scrap Item':
+                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
+                    elif frappe.db.has_column(table_name, "type"):
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND type = 'Scrap' GROUP BY parent"
                     elif frappe.db.has_column(table_name, "is_scrap_item"):
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND is_scrap_item = 1 GROUP BY parent"
                     else:
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
+                        continue # DO NOT blindly sum raw materials!
                         
                     try:
                         table_scrap = frappe.db.sql(query, (tuple(boms),), as_dict=1)
@@ -152,8 +154,24 @@ def get_data(filters):
 
     # Pre-fetch Job Card Actual Scrap dynamically
     actual_scrap_map = {}
+    time_logs_map = {}
     jc_names = tuple(set([jc.job_card for jc in job_cards]))
+    
     if jc_names:
+        # Pre-fetch Time Logs because parent field is sometimes manually zeroed out
+        try:
+            time_logs = frappe.db.sql("""
+                SELECT parent, sum(time_in_mins) as total_time
+                FROM `tabJob Card Time Log`
+                WHERE parent IN %s
+                GROUP BY parent
+            """, (jc_names,), as_dict=1)
+            for t in time_logs:
+                time_logs_map[t.parent] = t.total_time or 0.0
+        except Exception:
+            pass
+
+        # Dynamically discover Scrap tables
         possible_jc_tables = ['Job Card Scrap Item']
         try:
             custom_jc_tables = frappe.db.sql("""
@@ -169,9 +187,21 @@ def get_data(filters):
             
         for table_name in possible_jc_tables:
             if frappe.db.exists("DocType", table_name):
-                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
-                if not qty_col and frappe.db.has_column(table_name, "qty"):
-                    qty_col = "qty"
+                # Dynamically find the quantity column (e.g. qty, stock_qty, scrap_qty, sec_qty)
+                try:
+                    qty_cols = frappe.db.sql("""
+                        SELECT fieldname FROM `tabDocField` 
+                        WHERE parent = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
+                        AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
+                    """, (table_name,))
+                except Exception:
+                    qty_cols = []
+                
+                qty_col = qty_cols[0][0] if qty_cols else None
+                if not qty_col:
+                    qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
+                if not qty_col:
+                    qty_col = "qty" if frappe.db.has_column(table_name, "qty") else None
                 
                 if qty_col:
                     if frappe.db.has_column(table_name, "type"):
@@ -262,7 +292,7 @@ def get_data(filters):
             "status": jc.status,
             "workstation": jc.workstation,
             "operation": jc.operation,
-            "operation_time": jc.operation_time,
+            "operation_time": time_logs_map.get(jc.job_card, jc.operation_time),
             "operator_name": operator_name,
             "stock_entry_qty": se_production_map.get((jc.work_order, jc.posting_date), 0.0),
             "production_qty_pcs": production_qty_pcs,
