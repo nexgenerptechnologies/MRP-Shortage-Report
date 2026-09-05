@@ -2,30 +2,6 @@ import frappe
 from frappe import _
 
 def execute(filters=None):
-    try:
-        msg = "<b>Please screenshot this entire popup and send it to me!</b><br><br>"
-        # Inspect Job Card
-        jc_doc = frappe.get_doc("Job Card", "PO-JOB02528").as_dict()
-        msg += "<b>JOB CARD: PO-JOB02528</b><br>"
-        for key, value in jc_doc.items():
-            if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                msg += f"<b>Table:</b> {key}<br>"
-                msg += f"<b>Keys:</b> {', '.join(value[0].keys())}<br>"
-                msg += f"<b>Row 1:</b> {str(value[0])}<br><br>"
-                
-        # Inspect BOM
-        bom_doc = frappe.get_doc("BOM", "BOM-WIP00022-002").as_dict()
-        msg += "<b>BOM: BOM-WIP00022-002</b><br>"
-        for key, value in bom_doc.items():
-            if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-                msg += f"<b>Table:</b> {key}<br>"
-                msg += f"<b>Keys:</b> {', '.join(value[0].keys())}<br>"
-                msg += f"<b>Row 1:</b> {str(value[0])}<br><br>"
-                
-        frappe.msgprint(msg, title="System Diagnostics")
-    except Exception as e:
-        pass
-
     columns = get_columns()
     data = get_data(filters)
     return columns, data
@@ -130,63 +106,29 @@ def get_data(filters):
             SELECT name, quantity FROM `tabBOM` WHERE name IN %s
         """, (tuple(boms),), as_dict=1)
         
-        # Discover all child tables of BOM that might contain Scrap
-        possible_scrap_tables = ['BOM Scrap Item']
-        try:
-            custom_tables = frappe.db.sql("""
-                SELECT options FROM `tabDocField` 
-                WHERE parent = 'BOM' AND fieldtype = 'Table' 
-                AND options NOT IN ('BOM Operation', 'BOM Item')
-                UNION
-                SELECT options FROM `tabCustom Field` 
-                WHERE dt = 'BOM' AND fieldtype = 'Table' 
-                AND options NOT IN ('BOM Operation', 'BOM Item')
-            """)
-            for t in custom_tables:
-                if t[0] not in possible_scrap_tables:
-                    possible_scrap_tables.append(t[0])
-        except Exception:
-            pass
-            
         scrap_map = {}
+        possible_scrap_tables = ['BOM Scrap Item', 'BOM Secondary Item']
+        
         for table_name in possible_scrap_tables:
             if frappe.db.exists("DocType", table_name):
-                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
-                if not qty_col and frappe.db.has_column(table_name, "qty"):
-                    qty_col = "qty"
+                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else "qty"
                 
-                if not qty_col:
-                    try:
-                        qty_cols = frappe.db.sql("""
-                            SELECT fieldname FROM `tabDocField` 
-                            WHERE parent = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
-                            AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
-                        """, (table_name,))
-                        qty_col = qty_cols[0][0] if qty_cols else None
-                    except Exception:
-                        pass
-                    
-                if qty_col:
-                    type_col = None
-                    if frappe.db.has_column(table_name, "type"): type_col = "type"
-                    elif frappe.db.has_column(table_name, "secondary_item_type"): type_col = "secondary_item_type"
-                    elif frappe.db.has_column(table_name, "item_type"): type_col = "item_type"
-                    
-                    if table_name == 'BOM Scrap Item':
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
-                    elif type_col:
+                type_col = None
+                if frappe.db.has_column(table_name, "type"): type_col = "type"
+                elif frappe.db.has_column(table_name, "secondary_item_type"): type_col = "secondary_item_type"
+                elif frappe.db.has_column(table_name, "item_type"): type_col = "item_type"
+                
+                try:
+                    if type_col:
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND {type_col} LIKE '%%crap%%' GROUP BY parent"
-                    elif frappe.db.has_column(table_name, "is_scrap_item"):
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND is_scrap_item = 1 GROUP BY parent"
                     else:
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
                         
-                    try:
-                        table_scrap = frappe.db.sql(query, (tuple(boms),), as_dict=1)
-                        for s in table_scrap:
-                            scrap_map[s.parent] = scrap_map.get(s.parent, 0.0) + (s.total_scrap or 0.0)
-                    except Exception:
-                        pass
+                    table_scrap = frappe.db.sql(query, (tuple(boms),), as_dict=1)
+                    for s in table_scrap:
+                        scrap_map[s.parent] = scrap_map.get(s.parent, 0.0) + (s.total_scrap or 0.0)
+                except Exception:
+                    pass
         
         for b in bom_details:
             total_scrap = scrap_map.get(b.name, 0.0)
@@ -214,64 +156,27 @@ def get_data(filters):
         except Exception:
             pass
 
-        # Dynamically discover Scrap tables from both standard and custom fields
-        possible_jc_tables = ['Job Card Scrap Item']
-        try:
-            custom_jc_tables = frappe.db.sql("""
-                SELECT options FROM `tabDocField` 
-                WHERE parent = 'Job Card' AND fieldtype = 'Table' 
-                AND options NOT IN ('Job Card Operation', 'Job Card Time Log', 'Job Card Item')
-                UNION
-                SELECT options FROM `tabCustom Field` 
-                WHERE dt = 'Job Card' AND fieldtype = 'Table' 
-                AND options NOT IN ('Job Card Operation', 'Job Card Time Log', 'Job Card Item')
-            """)
-            for t in custom_jc_tables:
-                if t[0] not in possible_jc_tables:
-                    possible_jc_tables.append(t[0])
-        except Exception:
-            pass
-            
+        possible_jc_tables = ['Job Card Scrap Item', 'Job Card Secondary Item']
         for table_name in possible_jc_tables:
             if frappe.db.exists("DocType", table_name):
-                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else None
-                if not qty_col and frappe.db.has_column(table_name, "qty"):
-                    qty_col = "qty"
+                qty_col = "stock_qty" if frappe.db.has_column(table_name, "stock_qty") else "qty"
                 
-                if not qty_col:
-                    try:
-                        qty_cols = frappe.db.sql("""
-                            SELECT fieldname FROM `tabDocField` 
-                            WHERE parent = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
-                            AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
-                            UNION
-                            SELECT fieldname FROM `tabCustom Field` 
-                            WHERE dt = %s AND fieldtype IN ('Float', 'Currency', 'Int') 
-                            AND (fieldname LIKE '%%qty%%' OR fieldname LIKE '%%quantity%%')
-                        """, (table_name, table_name))
-                        qty_col = qty_cols[0][0] if qty_cols else None
-                    except Exception:
-                        pass
+                type_col = None
+                if frappe.db.has_column(table_name, "type"): type_col = "type"
+                elif frappe.db.has_column(table_name, "secondary_item_type"): type_col = "secondary_item_type"
+                elif frappe.db.has_column(table_name, "item_type"): type_col = "item_type"
                 
-                if qty_col:
-                    type_col = None
-                    if frappe.db.has_column(table_name, "type"): type_col = "type"
-                    elif frappe.db.has_column(table_name, "secondary_item_type"): type_col = "secondary_item_type"
-                    elif frappe.db.has_column(table_name, "item_type"): type_col = "item_type"
-                    
-                    if table_name == 'Job Card Scrap Item':
-                        query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
-                    elif type_col:
+                try:
+                    if type_col:
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s AND {type_col} LIKE '%%crap%%' GROUP BY parent"
                     else:
                         query = f"SELECT parent, sum({qty_col}) as total_scrap FROM `tab{table_name}` WHERE parent IN %s GROUP BY parent"
                         
-                    try:
-                        jc_scrap = frappe.db.sql(query, (jc_names,), as_dict=1)
-                        for s in jc_scrap:
-                            actual_scrap_map[s.parent] = actual_scrap_map.get(s.parent, 0.0) + (s.total_scrap or 0.0)
-                    except Exception:
-                        pass
+                    jc_scrap = frappe.db.sql(query, (jc_names,), as_dict=1)
+                    for s in jc_scrap:
+                        actual_scrap_map[s.parent] = actual_scrap_map.get(s.parent, 0.0) + (s.total_scrap or 0.0)
+                except Exception:
+                    pass
 
                 
     # Pre-fetch Stock Entry (Manufacture) Production quantities linked to Work Order & Date
